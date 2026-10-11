@@ -144,7 +144,7 @@ if (!m) throw new Error('app.js sourceNames 未找到');
 const existing = m[1].split('|');
 const overlap = cantonese.filter(n => existing.includes(n));
 if (overlap.length) throw new Error('与现有频道重复: ' + overlap.join(', '));
-const CHINESE_COUNT = 54; // 现有中文段长度
+const CHINESE_COUNT = 53; // 现有中文段长度
 const all = [...existing.slice(0, CHINESE_COUNT), ...cantonese, ...existing.slice(CHINESE_COUNT)];
 const NEW_EN_START = all.indexOf('Bloomberg Television');
 if (NEW_EN_START !== CHINESE_COUNT + cantonese.length) throw new Error('英文起点异常: ' + NEW_EN_START);
@@ -159,15 +159,15 @@ await writeFile(appPath, app);
 console.log('app.js 更新完成，总频道数:', all.length, '，ENGLISH_SOURCE_START =', NEW_EN_START);
 
 // ============ 2) 工作流：oai.yml 与 ci.yml.new 内容保持一致 ============
-// 默认全量清单只含中文段（现有 54 个财经 + 新增 100 个粤语 = 154 个），与旧版口径一致（英文源不进工作流默认扫描）。
+// 默认全量清单只含中文段（现有 53 个财经 + 新增 100 个粤语 = 153 个），与旧版口径一致（英文源不进工作流默认扫描）。
 const fullJson = JSON.stringify(all.slice(0, NEW_EN_START));
-if (JSON.parse(fullJson).length !== 154) throw new Error('工作流默认清单应为 154 个');
+if (JSON.parse(fullJson).length !== 153) throw new Error('工作流默认清单应为 153 个');
 const workflowReplacements = [
-  ["description: '要扫描的频道，多个用 | 分隔，留空使用全部 54 个频道全量扫描'",
-   "description: '要扫描的频道，多个用 | 分隔，留空使用全部 154 个频道全量扫描'"],
-  ['# 默认全量 54 个频道清单', '# 默认全量 154 个频道清单（54 个中文财经 + 100 个粤语频道，与 app.js sourceNames 同步）'],
-  ['# 解析频道：支持 | 、, 、换行 分隔；留空或填 ALL 时默认全量 54 个频道', '# 解析频道：支持 | 、, 、换行 分隔；留空或填 ALL 时默认全量 154 个频道'],
-  ['# 默认全量推送：与 app.js 同步的 54 个频道', '# 默认全量推送：与 app.js 同步的 154 个频道'],
+  ["description: '要扫描的频道，多个用 | 分隔，留空使用全部 53 个频道全量扫描'",
+   "description: '要扫描的频道，多个用 | 分隔，留空使用全部 153 个频道全量扫描'"],
+  ['# 默认全量 53 个频道清单', '# 默认全量 153 个频道清单（53 个中文财经 + 100 个粤语频道，与 app.js sourceNames 同步）'],
+  ['# 解析频道：支持 | 、, 、换行 分隔；留空或填 ALL 时默认全量 53 个频道', '# 解析频道：支持 | 、, 、换行 分隔；留空或填 ALL 时默认全量 153 个频道'],
+  ['# 默认全量推送：与 app.js 同步的 53 个频道', '# 默认全量推送：与 app.js 同步的 153 个频道'],
 ];
 const listAssignRe = /(?:ALL_54_CHANNELS|CHANNELS_JSON)='\[[^\]]*\]'/g;
 for (const file of ['.github/workflows/oai.yml', 'ci.yml.new']) {
@@ -198,12 +198,12 @@ for (const file of ['.github/workflows/oai.yml', 'ci.yml.new']) {
 // ============ 3) README：频道数量与粤语频道库说明 ============
 const readmePath = new URL('../README.md', import.meta.url);
 let readme = await readFile(readmePath, 'utf8');
-readme = readme.replaceAll('留空或填 `ALL` 则默认扫描全部 54 个频道', '留空或填 `ALL` 则默认扫描全部 154 个频道');
-readme = readme.replaceAll('自动扫描全量 54 个频道并推送微信', '自动扫描全量 154 个频道并推送微信');
+readme = readme.replaceAll('留空或填 `ALL` 则默认扫描全部 53 个频道', '留空或填 `ALL` 则默认扫描全部 153 个频道');
+readme = readme.replaceAll('自动扫描全量 53 个频道并推送微信', '自动扫描全量 153 个频道并推送微信');
 const sectionTitle = '## 频道库：100 个粤语频道（新增入库）';
 if (!readme.includes(sectionTitle)) {
   const list = Object.entries(groups).map(([g, arr]) => `- **${g}（${arr.length}）**：${arr.join('、')}`).join('\n');
-  const section = `\n${sectionTitle}\n\n以下 100 个粤语频道已加入频道清单（网页端频道清单与工作流默认全量扫描同步），覆盖香港/澳门财经、新闻媒体、时政知识、大湾区、海外港人与生活娱乐，全部频道均经 YouTube 频道搜索逐一核实：\n\n${list}\n\n> 粤语频道与普通话财经频道同放在「中文频道」段（索引 0–153），英文内容源从索引 154 开始；网页端中英文交错排布逻辑（\`ENGLISH_SOURCE_START\`）已同步更新。\n\n---\n`;
+  const section = `\n${sectionTitle}\n\n以下 100 个粤语频道已加入频道清单（网页端频道清单与工作流默认全量扫描同步），覆盖香港/澳门财经、新闻媒体、时政知识、大湾区、海外港人与生活娱乐，全部频道均经 YouTube 频道搜索逐一核实：\n\n${list}\n\n> 粤语频道与普通话财经频道同放在「中文频道」段（索引 0–152），英文内容源从索引 153 开始；网页端中英文交错排布逻辑（\`ENGLISH_SOURCE_START\`）已同步更新。\n\n---\n`;
   readme = readme.replace('\n---\n\n## 本地运行', `${section}\n## 本地运行`);
 }
 await writeFile(readmePath, readme);
@@ -212,10 +212,10 @@ console.log('README.md 更新完成');
 // ============ 4) 测试断言同步 ============
 const testPath = new URL('../test/ui.test.mjs', import.meta.url);
 let test = await readFile(testPath, 'utf8');
-test = test.replaceAll("assert.equal(names.length, 124);", "assert.equal(names.length, 224);");
-test = test.replaceAll("assert.equal(names[54], 'Bloomberg Television');", "assert.equal(names[154], 'Bloomberg Television');");
-test = test.replaceAll("assert.match(source, /const ENGLISH_SOURCE_START = 54;/);", "assert.match(source, /const ENGLISH_SOURCE_START = 154;/);");
+test = test.replaceAll("assert.equal(names.length, 123);", "assert.equal(names.length, 223);");
+test = test.replaceAll("assert.equal(names[53], 'Bloomberg Television');", "assert.equal(names[153], 'Bloomberg Television');");
+test = test.replaceAll("assert.match(source, /const ENGLISH_SOURCE_START = 53;/);", "assert.match(source, /const ENGLISH_SOURCE_START = 153;/);");
 test = test.replaceAll("(?:ALL_54_CHANNELS|CHANNELS_JSON)", "(?:ALL_CHANNELS|CHANNELS_JSON)");
-test = test.replaceAll("assert.equal(channels.length, 54);", "assert.equal(channels.length, 154);");
+test = test.replaceAll("assert.equal(channels.length, 53);", "assert.equal(channels.length, 153);");
 await writeFile(testPath, test);
 console.log('test/ui.test.mjs 更新完成');

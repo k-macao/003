@@ -11,6 +11,10 @@ import {
 } from './seekingalpha.mjs';
 // 无头浏览器探针：轻量 HTTP 探针被限流（403 / 空页）时升级为真实浏览器渲染读取
 import { probeHeadlessDriver, fetchWithHeadless } from './headless.mjs';
+import {
+  filterSensitiveHtml, filterSensitiveText, getSensitiveWordStats,
+  SENSITIVE_REPLACEMENT
+} from './sensitive-filter.mjs';
 
 const PORT = process.env.PORT || 3000;
 const clean = s => String(s || '').replace(/台湾|台灣/g, '中国台湾').replace(/\s+/g, ' ').trim();
@@ -658,7 +662,17 @@ async function pushWechat({ token, title, content, template = 'html', channel = 
   if (!content) throw new Error('缺少推送内容');
   // 不推个股页：发送前统一剥离个股板块/个股页，只推全景汇总
   content = stripStockSections(content);
-  const baseTitle = title || '章鱼 AI · 舆情量化分析';
+  // 最后一关：对将要发出的页面可见文本做本地敏感词替换，标签和链接属性保持不变。
+  const filteredContent = filterSensitiveHtml(content, { collectMatches: true });
+  content = filteredContent.text;
+  const rawTitle = title || '章鱼 AI · 舆情量化分析';
+  const filteredTitle = filterSensitiveText(rawTitle, { collectMatches: true });
+  const baseTitle = filteredTitle.text;
+  const sensitiveHits = filteredContent.matches.length + filteredTitle.matches.length;
+  if (sensitiveHits) {
+    const dict = getSensitiveWordStats();
+    console.log(`[sensitive-filter] 推送前已将 ${sensitiveHits} 处命中替换为 ${SENSITIVE_REPLACEMENT}（本地词库 ${dict.words} 个词，来源 ${dict.source}@${dict.commit.slice(0, 12)}）`);
+  }
 
   // 提取外层 header / footer（<section> 之外的固定内容），保证每条消息都有标题和免责声明
   // 使用 firstSection / lastSectionEnd 精确定位，避免原 footer 正则把时间戳段误判为 footer

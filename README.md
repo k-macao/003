@@ -47,7 +47,7 @@
 - **美食生活（9）**：Ricky講煮講食、曾鎧琪 Alison【香港曾小妹】、May in Hong Kong 私の香港生活、K.A.T.、東京情報猿、香港美食 by Alexis、HKMINICHEF、リンモク 鈴木 Lingmuk【廣東話學習Vlog】、TVB 奇幻穿越劇場 (TVB Fantasy Drama)
 - **TVB娱乐（10）**：TVB 綜藝、TVB Anywhere Life、TVB Best Drama 熱播劇場、TVB Drama – Comedy 喜劇台、TVB Drama – Action & WuXia 動作武俠、TVB Drama - Crime & Mystery 神秘頻道、灼見名家文化教育、星島溫哥華、Fairchild TV FTV、香港人看英國新聞
 
-> 粤语频道与普通话财经频道同放在「中文频道」段（索引 0–153），英文内容源从索引 154 开始；网页端中英文交错排布逻辑（`ENGLISH_SOURCE_START`）已同步更新。
+> 粤语频道与普通话财经频道同放在「中文频道」段（索引 0–152），英文内容源从索引 153 开始；网页端中英文交错排布逻辑（`ENGLISH_SOURCE_START`）已同步更新。
 
 ---
 
@@ -55,7 +55,7 @@
 
 ```bash
 npm install
-npm run check # 语法检查（server / app / ai / freshness / longshort）
+npm run check # 语法检查（server / app / ai / freshness / longshort / sensitive-filter）
 npm test      # 语法检查 + 时效、多空概率、字幕读取、紧凑版式与默认微信推送回归测试
 npm start     # 启动服务
 # 打开 http://localhost:3000
@@ -71,6 +71,14 @@ npm start     # 启动服务
 - 网页、手动工作流和定时工作流均使用 `channel: 'wechat'`，并默认带 `topic: 'oai.1'` 做**一对多群推送**（PushPlus 群组编码 `oai.1`，一次推送群内成员全部可达；可用环境变量 / Secret `PUSHPLUS_TOPIC` 覆盖群名）。本次更改默认配置不会主动触发工作流或发送现有数据。
 
 项目使用 [PushPlus（推送加）](https://www.pushplus.plus/) 把简报推送到微信公众号。
+
+## 推送前敏感词过滤
+
+- 推送前会对**最终 HTML 页面可见文本**统一扫描，命中本地词库的内容替换为 `xxx`；HTML 标签、链接属性和页面结构保持不变。
+- 网页 `/api/push`、手动工作流、定时工作流均在真正调用 PushPlus 前执行同一套过滤，避免绕过网页端直接推送。
+- 本地词库位于 `data/sensitive-words.txt`，来源为 [mimikin/AI-Sensitive-Word-Bank](https://github.com/mimikin/AI-Sensitive-Word-Bank)，固定于提交 [`b3d98147`](https://github.com/mimikin/AI-Sensitive-Word-Bank/commit/b3d98147a08a4af4600622c5ec110b53dee48093)，MIT 许可文本见 `data/AI-Sensitive-Word-Bank.LICENSE`。
+- 过滤器实现位于 `sensitive-filter.mjs`：读取源词库 Set 1–3，去重并支持部分跳字 / 拼音变体；源文件的 Set 4 保留在本地归档，但默认不启用，以免单字和常见词造成大面积误报。
+- 该词库来自第三方、内容可能不完整或过时；`xxx` 替换是发布前的保守屏蔽，不代表对敏感内容的完整合规保证。
 
 ### 获取 Token
 
@@ -95,14 +103,14 @@ npm start     # 启动服务
    - Secret: 你的 DeepSeek API key（[获取地址](https://platform.deepseek.com/api_keys)）
 2. 进入 Actions →「AI 扫描」→ Run workflow
 3. 可选项：
-   - `channels`：要扫描的频道，用 `|` 分隔，留空或填 `ALL` 则默认扫描全部 154 个频道
+   - `channels`：要扫描的频道，用 `|` 分隔，留空或填 `ALL` 则默认扫描全部 153 个频道
    - `push_to_wechat`：**默认勾选**，扫描完成后自动推送微信；可取消
    - `pushplus_token`：也可在此临时填入（会优先于 Secret）
    - `enable_ai_summary`：默认 `true`，扫描完成后会用 AI 对所有视频字幕做主题聚类总结，拼到推送内容顶部
 
 ### 定时自动推送
 
-- 工作流内置定时任务（`schedule`）：**每天澳门时间 09:00 与 17:00** 自动扫描全量 154 个频道并推送微信（对应 GitHub cron：`0 1 * * *` / `0 9 * * *`，UTC）。
+- 工作流内置定时任务（`schedule`）：**每天澳门时间 09:00 与 17:00** 自动扫描全量 153 个频道并推送微信（对应 GitHub cron：`0 1 * * *` / `0 9 * * *`，UTC）。
 - 只需配置好 `PUSHPLUS_TOKEN` Secret，到点即自动推；未配置 token 时仅扫描不推送。
 
 工作流会先跑构建与测试（Node 18 / 20），通过后执行扫描、生成 DOS 监视器 · 复古终端竖版 HTML 简报并调用 PushPlus 推送到微信。
