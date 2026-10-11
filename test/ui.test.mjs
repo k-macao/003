@@ -56,6 +56,43 @@ test('网页和工作流默认勾选微信；工作流镜像一致', async () =>
   assert.equal(workflow, await readFile(new URL('../ci.yml.new', import.meta.url), 'utf8'));
 });
 
+test('工作流：群推送 oai.1、新标题、10 万字符控制、每条不带模型/免责说明', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/oai.yml', import.meta.url), 'utf8');
+  // 一对多群推送（PushPlus topic，群名 oai.1）
+  assert.equal(workflow.match(/process\.env\.PUSHPLUS_TOPIC \|\| 'oai\.1'/g).length, 2);
+  assert.equal(workflow.match(/\.\.\.\(topic \? \{ topic \} : \{\}\)/g).length, 2);
+  // 推送标题
+  assert.equal(workflow.match(/const title = '章鱼 AI · 舆情量化分析';/g).length, 2);
+  assert.ok(!workflow.includes('章鱼 AI 全景分析'));
+  // 10 万文字控制（按字符数，不再按 90,000 字节）
+  assert.equal(workflow.match(/const PUSHPLUS_MAX_CHARS = 100000;/g).length, 2);
+  assert.ok(!workflow.includes('90000'));
+  assert.ok(!workflow.includes('Buffer.byteLength'));
+  // 每条卡片：单行多空概率，且不附模型/免责/未读取正文说明
+  assert.equal(workflow.match(/多 \$\{lsBar\(bb\.bull\)\} \$\{bb\.bull\}% ｜ 空 \$\{lsBar\(bb\.bear\)\} \$\{bb\.bear\}%/g).length, 2);
+  assert.ok(!workflow.includes('仅供研究参考，不构成投资建议'));
+  assert.ok(!workflow.includes('未读取视频正文'));
+  assert.ok(!workflow.includes('模型：${src}'));
+});
+
+test('每条推送：标题、单行多空概率，且不附模型/免责/未读取正文说明', async () => {
+  const h = harness({ token: 'test-only', items: [{ ...item(), transcript: '', status: '仅供参考，不做推荐',
+    bullBear: { bull: 64, bear: 36, note: '偏多：反弹 / 內房', source: 'ai' } }] });
+  await h.node('#scan').onclick();
+  const payload = h.pushes()[0].body;
+  assert.equal(payload.title, '章鱼 AI · 舆情量化分析');
+  // 多 / 空 同一行显示
+  assert.match(payload.content, /多 █+░* 64% ｜ 空 █+░* 36%/);
+  assert.ok(!/white-space:pre-wrap;">多 /.test(payload.content));
+  // 仅保留方向短注，不再附模型与免责说明
+  assert.match(payload.content, /偏多：反弹 \/ 內房/);
+  assert.ok(!payload.content.includes('模型：DeepSeek 多空推理'));
+  assert.ok(!payload.content.includes('仅供研究参考，不构成投资建议'));
+  assert.ok(!payload.content.includes('未读取视频正文'));
+  // 无字幕条目的状态文字
+  assert.match(payload.content, /仅供参考，不做推荐/);
+});
+
 test('成功扫描默认只推送一次到微信，使用紧凑内联字号', async () => {
   const h = harness({ token: 'test-only' });
   await h.node('#scan').onclick();
