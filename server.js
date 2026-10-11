@@ -599,7 +599,7 @@ async function scan(names, limit = 50) {
 }
 
 /**
- * 给扫描结果做 AI 量化工作流总结（DeepSeek / 本地四步可量化工作流降级），并返回一段 HTML 片段，
+ * 给扫描结果做 AI 量化工作流总结（DeepSeek / 本地四步量化舆情分析降级），并返回一段 HTML 片段，
  * 供 pushWechat 插到推送开头。
  */
 async function buildSummaryHtml(items) {

@@ -246,7 +246,7 @@ jobs:
               </section>`
           ).join('');
 
-          // 推送开头 AI 总结概括（DeepSeek / 四步可量化工作流总结）
+          // 推送开头 AI 总结概括（DeepSeek / 四步量化舆情分析总结）
           let summaryHtml = '';
           if (String(process.env.ENABLE_AI_SUMMARY) !== 'false') {
             try {
@@ -258,14 +258,14 @@ jobs:
               const d = await r.json();
               if (r.ok && d && d.ok && d.summaryHtml) {
                 summaryHtml = d.summaryHtml;
-                console.log('✅ 已附加推送开头 AI 可量化工作流总结');
+                console.log('✅ 已附加推送开头 AI 量化舆情分析总结');
               } else {
                 summaryHtml = renderSummaryHtml(buildRuleSummary(items), { itemCount: items.length, quant });
-                console.log('ℹ️ 使用本地四步可量化工作流总结');
+                console.log('ℹ️ 使用本地四步量化舆情分析总结');
               }
             } catch (e) {
               summaryHtml = renderSummaryHtml(buildRuleSummary(items), { itemCount: items.length, quant });
-              console.log('⚠️ AI 总结接口异常，已使用本地四步可量化工作流总结：', e.message);
+              console.log('⚠️ AI 总结接口异常，已使用本地四步量化舆情分析总结：', e.message);
             }
           }
 
@@ -552,7 +552,7 @@ jobs:
                 </section>`
             ).join('');
 
-            // 推送开头 AI 总结概括（DeepSeek / 四步可量化工作流总结）
+            // 推送开头 AI 总结概括（DeepSeek / 四步量化舆情分析总结）
             let summaryHtml = '';
             try {
               const r = await fetch('http://localhost:3000/api/summarize', {
@@ -563,14 +563,14 @@ jobs:
               const d = await r.json();
               if (r.ok && d && d.ok && d.summaryHtml) {
                 summaryHtml = d.summaryHtml;
-                console.log('✅ 已附加推送开头 AI 可量化工作流总结');
+                console.log('✅ 已附加推送开头 AI 量化舆情分析总结');
               } else {
                 summaryHtml = renderSummaryHtml(buildRuleSummary(items), { itemCount: items.length, quant });
-                console.log('ℹ️ 使用本地四步可量化工作流总结');
+                console.log('ℹ️ 使用本地四步量化舆情分析总结');
               }
             } catch (e) {
               summaryHtml = renderSummaryHtml(buildRuleSummary(items), { itemCount: items.length, quant });
-              console.log('⚠️ AI 总结接口异常，已使用本地四步可量化工作流总结：', e.message);
+              console.log('⚠️ AI 总结接口异常，已使用本地四步量化舆情分析总结：', e.message);
             }
 
             const baseContent = `<div style="font-family:'Courier New',Consolas,'SimSun',monospace;background-color:#041404;color:#8fdca4;padding:10.5px 9px;font-size:10px;line-height:1.55;max-width:680px;margin:0 auto;box-sizing:border-box;letter-spacing:0.3px;">

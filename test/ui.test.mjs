@@ -218,7 +218,7 @@ test('AI、SA、微信预览、手动和定时推送模板没有遗留大字号'
   }
 });
 
-test('推送开头包含 AI 可量化分析工作流总结概括，且每条标题展示五档情绪打标', async () => {
+test('推送开头包含 AI 量化舆情分析总结概括，且每条标题展示五档情绪打标', async () => {
   const h = harness({
     token: 'test-only',
     items: [
@@ -257,7 +257,7 @@ test('推送开头包含 AI 可量化分析工作流总结概括，且每条标�
   const pushes = h.pushes();
   assert.equal(pushes.length, 1);
   const content = pushes[0].body.content;
-  // 推送开头为 AI 总结概括 + 四步可量化工作流（排在视频情报流 #1 之前）
+  // 推送开头为 AI 总结概括 + 四步量化舆情分析（排在视频情报流 #1 之前）
   const summaryIdx = content.indexOf('C:\\AI\\SUMMARY.EXE');
   const cardIdx = content.indexOf('DIR ▸ 信報財經新聞');
   assert.ok(summaryIdx >= 0 && cardIdx > summaryIdx, '推送开头应先输出 AI 总结概括再输出每条视频');

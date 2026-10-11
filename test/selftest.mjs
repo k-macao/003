@@ -212,7 +212,7 @@ t('SA 推送块：五档色深 + 空列表不输出', () => {
   assert.match(html, /color:#63b47f/);   // 说明（英文原题 / 来源标注）
 });
 
-console.log('· 可量化的分析工作流（四步量化情绪分析 + 推送开头 AI 总结概括）');
+console.log('· 量化舆情分析（四步量化情绪分析 + 推送开头 AI 总结概括）');
 t('四步工作流：1.解析观看量/粉丝量 + 2.五档情绪打标 + 3.流量加权情绪指数 + 4.上下轨策略', () => {
   assert.deepEqual(SENTIMENT_LABELS, ['极度乐观', '谨慎乐观', '中性观察', '谨慎悲观', '极度恐慌']);
   assert.equal(parseViewCount('4.8万次观看'), 48000);
@@ -243,7 +243,7 @@ t('四步工作流：1.解析观看量/粉丝量 + 2.五档情绪打标 + 3.流�
   const greedStrat = evaluateSentimentBandStrategy(82);
   assert.match(greedStrat.strategyAction, /分批止盈/);
 });
-t('推送开头 AI 总结概括：包含四步可量化工作流且通过敏感词过滤无 xxx 误杀', async () => {
+t('推送开头 AI 总结概括：包含四步量化舆情分析且通过敏感词过滤无 xxx 误杀', async () => {
   const savedKey = process.env.DEEPSEEK_API_KEY;
   delete process.env.DEEPSEEK_API_KEY;
   const sampleItems = [
@@ -252,7 +252,7 @@ t('推送开头 AI 总结概括：包含四步可量化工作流且通过敏感�
   ];
   const summary = await summarize(sampleItems);
   if (savedKey) process.env.DEEPSEEK_API_KEY = savedKey;
-  assert.ok(summary && summary.main.includes('可量化情绪分析工作流'));
+  assert.ok(summary && summary.main.includes('量化舆情分析'));
   const html = renderSummaryHtml(summary, { itemCount: sampleItems.length, items: sampleItems });
   assert.match(html, /C:\\AI\\SUMMARY\.EXE/);
   assert.match(html, /QUANT_WORKFLOW\.DAT/);
