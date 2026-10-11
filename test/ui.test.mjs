@@ -56,6 +56,29 @@ test('网页和工作流默认勾选微信；工作流镜像一致', async () =>
   assert.equal(workflow, await readFile(new URL('../ci.yml.new', import.meta.url), 'utf8'));
 });
 
+test('CK财经频道、Mr.Market市场先生已从网页和默认工作流扫描列表移除', async () => {
+  const sourceMatch = source.match(/const sourceNames=`([\s\S]*?)`\.split\('\|'\);/);
+  assert.ok(sourceMatch, 'app.js should declare its source list');
+  const names = sourceMatch[1].split('|');
+  assert.ok(!names.includes('CK财经频道'));
+  assert.ok(!names.includes('Mr.Market市场先生'));
+  assert.equal(names.length, 124);
+  assert.equal(names[54], 'Bloomberg Television');
+  assert.match(source, /const ENGLISH_SOURCE_START = 54;/);
+
+  const workflow = await readFile(new URL('../.github/workflows/oai.yml', import.meta.url), 'utf8');
+  assert.ok(!workflow.includes('CK财经频道'));
+  assert.ok(!workflow.includes('Mr.Market市场先生'));
+  const defaults = [...workflow.matchAll(/(?:ALL_54_CHANNELS|CHANNELS_JSON)='([^']+)'/g)];
+  assert.equal(defaults.length, 2);
+  for (const [, json] of defaults) {
+    const channels = JSON.parse(json);
+    assert.equal(channels.length, 54);
+    assert.ok(!channels.includes('CK财经频道'));
+    assert.ok(!channels.includes('Mr.Market市场先生'));
+  }
+});
+
 test('工作流：群推送 oai.1、新标题、10 万字符控制、每条不带模型/免责说明', async () => {
   const workflow = await readFile(new URL('../.github/workflows/oai.yml', import.meta.url), 'utf8');
   // 一对多群推送（PushPlus topic，群名 oai.1）
