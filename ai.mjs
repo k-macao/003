@@ -1,4 +1,4 @@
-// ai.mjs — 章鱼 AI·全景分析 · AI 总结模块
+// ai.mjs — 章鱼 AI · 舆情量化分析 · AI 总结模块
 // 单一职责：接收扫描结果数组 → 输出"主题聚类"风格的总结 JSON。
 // 提供方：DeepSeek（OpenAI 兼容协议）。也支持任意 OpenAI 兼容 base_url，通过环境变量切换。
 //

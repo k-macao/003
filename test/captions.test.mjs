@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCaptionText, parseWatchTracks, parseListTracks, readCaptions } from '../captions.mjs';
+import { parseCaptionText, parseWatchTracks, parseListTracks, readCaptions, NO_CAPTION_STATUS } from '../captions.mjs';
 
 const id = 'abcdefghijk';
 const track = (languageCode = 'zh-Hant', extra = {}) => ({
@@ -98,7 +98,10 @@ test('网络错误仅尝试两个发现入口，不冒充视频没有字幕', as
   assert.equal(calls, 2);
   assert.equal(result.code, 'network_error');
   assert.equal(result.text, '');
-  assert.match(result.status, /仅标题/);
+  // 未读到字幕时的状态徽章文案：仅供参考，不做推荐（失败原因另见 code / message 诊断）
+  assert.equal(NO_CAPTION_STATUS, '仅供参考，不做推荐');
+  assert.equal(result.status, NO_CAPTION_STATUS);
+  assert.match(result.message, /字幕/);
 });
 
 test('429 停止重试；403 保留诊断状态码', async () => {

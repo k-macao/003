@@ -1,4 +1,4 @@
-// test/selftest.mjs — 章鱼 AI·全景分析 · 自测
+// test/selftest.mjs — 章鱼 AI · 舆情量化分析 · 自测
 // 覆盖：72 小时时效验证、AI 多空概率（规则降级路径）、总结块的 HTML 渲染。
 // 运行：npm test
 import assert from 'node:assert/strict';

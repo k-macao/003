@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#041404">
-  <title>章鱼 AI 全景分析 — 全网 AI 调研境内境外数据</title>
+  <title>章鱼 AI · 舆情量化分析 — 全网 AI 调研境内境外数据</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=VT323&family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
@@ -59,7 +59,7 @@
           </div>
           <p class="panel-desc">
             <span class="t-body">读取公开搜索结果与中文字幕；<b class="t-key">仅保留最近 72 小时内发布的内容</b>，超时或无法验证发布时间的内容自动隐藏。</span>
-            <span class="t-sub">每条内容附 <b class="t-key">AI 多空概率</b>（看多 / 看空，无字幕内容同样给出并标注推算来源）；支持自动多方向容错重试。</span>
+            <span class="t-sub">每条内容附一行 <b class="t-key">AI 多空概率</b>（看多 / 看空；无字幕内容同样给出，状态标注「仅供参考，不做推荐」）；支持自动多方向容错重试。</span>
           </p>
           <button class="btn-primary" id="scan">
             <span>▶</span> [ENTER] 开始全景扫描 <span class="btn-sub">(中英内容源 · 最多 50 条)</span>
@@ -89,7 +89,7 @@
         <section class="section-panel">
           <div class="panelhead">
             <h2><span class="icon-tag">03</span> 推送发射台</h2>
-            <small>默认微信 · 扫描后自动推送 · 09:00 / 17:00</small>
+            <small>微信一对多 · 扫描后自动推送 · 09:00 / 17:00</small>
           </div>
 
           <div>
@@ -107,6 +107,21 @@
             </p>
           </div>
 
+          <div class="topic-field">
+            <label class="field-label" for="topic">
+              群组编码 Topic <span class="t-sub">（一对多 · 默认群组 oai.1 · 群组全部订阅人接收）</span>
+            </label>
+            <div class="input-row">
+              <span class="input-key">TOPIC ▸</span>
+              <input id="topic" type="text" autocomplete="off" spellcheck="false" placeholder="留空 = 默认群组 oai.1；改发其它群组时再填写">
+              <span class="input-light" id="topic-light"></span>
+            </div>
+            <p class="hint">
+              <span class="t-sub">pushplus.plus「一对多消息」→ 群组 <b>oai.1</b> →「查看二维码」，把二维码发给接收人，微信扫码订阅即可收到简报。</span>
+              <span class="t-note">留空即发送到默认群组 oai.1（服务端 PUSHPLUS_TOPIC 可覆盖）；群组须由该 Token 账号创建。</span>
+            </p>
+          </div>
+
           <label class="auto-push-option" for="auto-push-wechat">
             <input id="auto-push-wechat" type="checkbox" checked>
             <span>扫描完成后自动推送微信 <span class="t-note">（默认开启，可取消）</span></span>
@@ -115,6 +130,7 @@
 
           <div class="push-meta-bar">
             <span>PACKET: <b id="packetCount">0</b> 条情报</span>
+            <span>MODE: <b id="pushMode">一对多 · 群组 oai.1</b></span>
             <span>STATUS: <b id="pushStatus">STANDBY</b></span>
           </div>
 
@@ -169,7 +185,7 @@
               <em>全网境内外为你寻找蛛丝马迹-提供全景视野分析</em> 由多模型协同推理决策 ，底层所使用的大语言模型（LLM）多模式背后结合使用了多种不同的先进模型，包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen 以及 Kimi。 根据不同的资产管理任务需求，更好地发挥各个模型的优势来提供数据支持！[加油]
             </div>
             <div class="footer-foot">
-              <span>© 章鱼 AI 全景分析 · 微信竖版长页面</span>
+              <span>© 章鱼 AI · 舆情量化分析 · 微信竖版长页面</span>
               <span>DOS MONITOR · 复古终端</span>
             </div>
             <div class="boot-line footer-boot">C:\OCTOPUS\AI&gt; EXIT <span class="cursor">█</span></div>

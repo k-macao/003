@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { readCaptions } from './captions.mjs';
+import { readCaptions, NO_CAPTION_STATUS } from './captions.mjs';
 import { readFile } from 'node:fs/promises';
 import { URL } from 'node:url';
 import { summarize, renderSummaryHtml, analyzeLongShort } from './ai.mjs';
@@ -11,6 +11,12 @@ import {
 } from './seekingalpha.mjs';
 
 const PORT = process.env.PORT || 3000;
+// 推送标题：网页手动推送不传 title，直接使用此默认值；GitHub Actions 工作流里的 title 常量须与此保持一致。
+const BRIEF_TITLE = '章鱼 AI · 舆情量化分析';
+// PushPlus 一对多：默认发送给群组 oai.1 的全部订阅人（topic = 群组编码）。
+// 服务端环境变量 PUSHPLUS_TOPIC 可改为其它群组；网页「群组编码 Topic」输入框填写时优先。
+const DEFAULT_PUSHPLUS_TOPIC = 'oai.1';
+const serverPushTopic = () => String(process.env.PUSHPLUS_TOPIC || '').trim() || DEFAULT_PUSHPLUS_TOPIC;
 const clean = s => String(s || '').replace(/台湾|台灣/g, '中国台湾').replace(/\s+/g, ' ').trim();
 const decode = s => s.replace(/\\u([0-9a-fA-F]{4})/g, (_,c)=>String.fromCharCode(parseInt(c,16))).replace(/\\"/g,'"').replace(/&amp;/g,'&');
 const json = (res, code, body) => { res.writeHead(code, {'Content-Type':'application/json; charset=utf-8'}); res.end(JSON.stringify(body)); };
@@ -319,9 +325,9 @@ function buildDemoItems() {
       transcript: '00:00 開場\n大家好，今日大市焦點係恒指重返萬八關。\n03:12 內房股集體反彈，碧桂園升幅領先。',
       status: '字幕已读取', bullBear: { bull: 64, bear: 36, note: '偏多：反弹 / 內房 / 恒指', source: 'ai' } }),
     mk({ id: 'demo0000002', hoursAgo: 11, channel: '美投说美股', published: '11 小时前', title: '美聯儲議息紀錄顯示官員分歧擴大 市場押注年內路徑',
-      transcript: '', status: '未读取到字幕（仅标题）', bullBear: { bull: 47, bear: 53, note: '中性：利率路径分歧', source: 'ai' } }),
+      transcript: '', status: NO_CAPTION_STATUS, bullBear: { bull: 47, bear: 53, note: '中性：利率路径分歧', source: 'ai' } }),
     mk({ id: 'demo0000003', hoursAgo: 40, channel: 'CNBC', published: '2 天前', title: 'Stocks rally as inflation data cools 美股通胀数据降温带动反弹',
-      transcript: '', status: '未读取到字幕（仅标题）', bullBear: { bull: 68, bear: 32, note: '偏多：通胀降温 / 反弹', source: 'rule' } }),
+      transcript: '', status: NO_CAPTION_STATUS, bullBear: { bull: 68, bear: 32, note: '偏多：通胀降温 / 反弹', source: 'rule' } }),
     mk({ id: 'demo0000004', hoursAgo: 100, channel: 'Bloomberg', published: '4 天前', title: '旧闻：四天前的市场综述（应被隐藏）',
       transcript: '旧内容', status: '字幕已读取', bullBear: { bull: 50, bear: 50, note: '中性', source: 'rule' } }),
     mk({ id: 'demo0000005', hoursAgo: 200, channel: 'Reuters', published: '1 周前', title: '旧闻：一周前的市场综述（应被隐藏）',
@@ -414,7 +420,7 @@ async function runFlows(token) {
 async function scan(names, limit = 50) {
  // 单次简报上限 50 条，避免长推送淹没重点；调用方可传入更小的剩余额度。
  const itemLimit = Math.max(1, Math.min(Number(limit) || 50, 50));
- // 章鱼 AI·全景分析：扫描所选频道，达到简报上限即停止。
+ // 章鱼 AI · 舆情量化分析：扫描所选频道，达到简报上限即停止。
  // 频道逐个顺序抓取，避免对 YouTube 产生过高并发；每个内容源最多保留 3 条「最近 72 小时内」的内容。
  //
  // 时效验证（新增）：每抓到一个候选先做 72 小时裁决 ——
@@ -613,19 +619,24 @@ function splitHtmlBySections(html, maxChars = PUSHPLUS_MAX_CHARS) {
 
 /**
  * 推送消息到 PushPlus（微信公众号）。
- * 文档：https://www.pushplus.plus/push1.html
+ * 文档：https://www.pushplus.plus/doc/guide/api.html
+ * 一对多：https://www.pushplus.plus/doc/function/more.html
  * 关键点：
  *  1) 必须使用 HTTPS + JSON body（form-urlencoded 在新版接口下不稳定）
  *  2) 必须显式带 channel:"wechat"，否则可能走到用户默认渠道而非微信
  *  3) 调用是异步的，返回 code:200 只代表服务器已受理；真正投递结果以 shortCode 为准
  *  4) 单条内容超过 10 万字会被拒绝，自动按 section 边界分多条发送，标题加 (1/N) 后缀
+ *  5) 一对多：带 topic（群组编码）时发送给该群组全部订阅人；/api/push 始终带 topic（默认群组 oai.1）。
+ *     仅当调用方显式传空 topic 时，PushPlus 才只发给 token 本人（一对一）
  */
-async function pushWechat({ token, title, content, template = 'html', channel = 'wechat' }) {
+async function pushWechat({ token, title, content, template = 'html', channel = 'wechat', topic = '' }) {
   if (!token) throw new Error('缺少 PushPlus token');
   if (!content) throw new Error('缺少推送内容');
+  const topicCode = String(topic || '').trim();
+  const mode = topicCode ? 'one-to-many' : 'one-to-one';
   // 不推个股页：发送前统一剥离个股板块/个股页，只推全景汇总
   content = stripStockSections(content);
-  const baseTitle = title || '章鱼 AI 全景分析';
+  const baseTitle = title || BRIEF_TITLE;
 
   // 提取外层 header / footer（<section> 之外的固定内容），保证每条消息都有标题和免责声明
   // 使用 firstSection / lastSectionEnd 精确定位，避免原 footer 正则把时间戳段误判为 footer
@@ -671,7 +682,7 @@ async function pushWechat({ token, title, content, template = 'html', channel = 
   for (let i = 0; i < total; i++) {
     const partTitle = total > 1 ? `${baseTitle} (${i + 1}/${total})` : baseTitle;
     const partContent = total > 1 ? `${header}${chunks[i]}${footer}` : (header ? `${header}${chunks[i]}${footer}` : chunks[i]);
-    const payload = JSON.stringify({ token, title: partTitle, content: partContent, template, channel });
+    const payload = JSON.stringify({ token, title: partTitle, content: partContent, template, channel, ...(topicCode ? { topic: topicCode } : {}) });
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20000);
     try {
@@ -700,6 +711,8 @@ async function pushWechat({ token, title, content, template = 'html', channel = 
   const first = results[0] || {};
   return {
     ok,
+    mode, // 'one-to-many' 群组全部订阅人 | 'one-to-one' 仅 token 本人
+    topic: topicCode, // 实际使用的群组编码（不是密钥，用于界面标注；Token 绝不回传）
     parts: results,
     totalParts: total,
     sentParts: results.filter(r => r.code === 200).length,
@@ -780,19 +793,30 @@ const server = http.createServer(async (req,res) => {
  }
  if (u.pathname === '/api/push-config' && req.method === 'GET') {
   res.setHeader('Cache-Control', 'no-store');
-  return json(res, 200, { wechatConfigured: Boolean(process.env.PUSHPLUS_TOKEN?.trim()), channel: 'wechat' });
+  // 只回传 Token 是否已配置，绝不回传 Token 本身；
+  // 群组编码不是密钥（发送仍需群组创建人的 Token），回传实际使用的群组用于界面标注。
+  return json(res, 200, {
+    wechatConfigured: Boolean(process.env.PUSHPLUS_TOKEN?.trim()),
+    topic: serverPushTopic(),
+    mode: 'one-to-many',
+    channel: 'wechat'
+  });
  }
  if (u.pathname === '/api/push' && req.method === 'POST') {
   try {
     const body = await new Promise((ok,bad)=>{let s='';req.on('data',x=>s+=x);req.on('end',()=>{try{ok(JSON.parse(s||'{}'))}catch(e){bad(e)}})});
     const token = body.token || process.env.PUSHPLUS_TOKEN;
     if (!token) return json(res,400,{error:'缺少 PushPlus token（请传入 body.token 或在服务器配置 PUSHPLUS_TOKEN 环境变量）'});
+    // 一对多：群组编码优先取请求体（网页输入），其次服务端环境变量 PUSHPLUS_TOPIC，最后默认群组 oai.1。
+    const bodyTopic = typeof body.topic === 'string' ? body.topic.trim() : '';
+    const topic = bodyTopic || serverPushTopic();
     const out = await pushWechat({
       token,
-      title: body.title || '章鱼 AI 全景分析',
+      title: body.title || BRIEF_TITLE,
       content: body.content || '',
       template: body.template || 'html',
-      channel: body.channel || 'wechat'
+      channel: body.channel || 'wechat',
+      topic
     });
     json(res, out.ok ? 200 : 502, { pushed: out.ok, ...out });
   } catch(e){ json(res,500,{error:e.message}); } return;
@@ -809,4 +833,4 @@ const server = http.createServer(async (req,res) => {
   else { try{res.end();}catch{} }
  }
 });
-server.listen(PORT,'0.0.0.0',()=>console.log(`Octopus AI Panorama on ${PORT}`));
+server.listen(PORT,'0.0.0.0',()=>console.log(`Octopus AI Panorama on ${server.address().port}`));

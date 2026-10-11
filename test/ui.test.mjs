@@ -10,7 +10,7 @@ const item = () => ({ channel: 'Test', title: '市场新闻', url: 'https://exam
 
 // Run the real browser event handlers with a minimal DOM and isolated network.
 // Never contact PushPlus or use real tokens in tests.
-function harness({ token = '', configured = false, auto = true, items = [item()], pushFails = false, scanFails = false, holdPush } = {}) {
+function harness({ token = '', topic = '', configured = false, serverTopic = 'oai.1', configFails = false, auto = true, items = [item()], pushFails = false, scanFails = false, holdPush } = {}) {
   const nodes = new Map();
   const selected = [{ value: 'Test', checked: true }];
   const node = selector => {
@@ -21,6 +21,7 @@ function harness({ token = '', configured = false, auto = true, items = [item()]
     return nodes.get(selector);
   };
   node('#token').value = token;
+  node('#topic').value = topic;
   node('#auto-push-wechat').checked = auto;
   const calls = [], alerts = [];
   const context = vm.createContext({
@@ -30,7 +31,10 @@ function harness({ token = '', configured = false, auto = true, items = [item()]
     fetch: async (url, options) => {
       calls.push({ url, body: options?.body ? JSON.parse(options.body) : null });
       let data = {};
-      if (url === '/api/push-config') data = { wechatConfigured: configured };
+      if (url === '/api/push-config') {
+        if (configFails) throw new Error('config offline');
+        data = { wechatConfigured: configured, topic: serverTopic, mode: 'one-to-many', channel: 'wechat' };
+      }
       else if (url === '/api/scan') {
         if (scanFails) throw new Error('scan offline');
         data = { items, hiddenCount: 0 };
@@ -39,7 +43,9 @@ function harness({ token = '', configured = false, auto = true, items = [item()]
       else if (url.startsWith('/api/seekingalpha')) data = { ok: true, items: [], html: '' };
       else if (url === '/api/push') {
         if (holdPush) await holdPush;
-        data = pushFails ? { ok: false, msg: 'send rejected' } : { ok: true, sentParts: 1, totalParts: 1 };
+        // 模拟服务端：群组编码 = 请求体 topic → 服务端 PUSHPLUS_TOPIC → 默认 oai.1，始终一对多
+        const used = calls.at(-1).body.topic || serverTopic || 'oai.1';
+        data = pushFails ? { ok: false, msg: 'send rejected' } : { ok: true, sentParts: 1, totalParts: 1, mode: 'one-to-many', topic: used };
       } else throw new Error('Unexpected URL ' + url);
       return { ok: true, json: async () => data };
     }
@@ -138,6 +144,108 @@ test('发送中禁止重复推送和新扫描', async () => {
   assert.equal(h.pushes().length, 1);
   release();
   await first;
+});
+
+test('一对多：填写群组编码后推送请求携带 topic，MODE 显示一对多', async () => {
+  assert.match(index, /<input id="topic"[^>]*type="text"/);
+  assert.match(index, /id="pushMode"/);
+  const h = harness({ token: 'test-only', topic: ' team-brief ' });
+  await h.node('#scan').onclick();
+  assert.equal(h.pushes().length, 1);
+  assert.equal(h.pushes()[0].body.topic, 'team-brief');
+  assert.equal(h.pushes()[0].body.channel, 'wechat');
+  assert.match(h.node('#pushMode').textContent, /一对多 · 群组 team-brief/);
+  assert.match(h.node('#pushStatus').textContent, /PUSHED 1\/1 · 一对多 · team-brief/);
+});
+
+test('一对多默认群组 oai.1：网页留空时交给服务端，MODE 与状态显示实际群组', async () => {
+  assert.match(index, /id="pushMode">一对多 · 群组 oai\.1</);
+  assert.match(index, /<input id="topic"[^>]*placeholder="留空 = 默认群组 oai\.1/);
+  const h = harness({ configured: true });
+  await h.node('#scan').onclick();
+  assert.equal(h.pushes().length, 1);
+  const body = h.pushes()[0].body;
+  assert.equal(body.topic, '');
+  assert.ok(!('title' in body), '推送标题由服务端统一');
+  assert.equal(h.node('#pushMode').textContent, '一对多 · 群组 oai.1');
+  assert.match(h.node('#topic').placeholder, /默认群组 oai\.1/);
+  assert.match(h.node('#pushStatus').textContent, /PUSHED 1\/1 · 一对多 · oai\.1/);
+  assert.ok(!/一对一/.test(h.node('#pushMode').textContent + h.node('#pushStatus').textContent));
+});
+
+test('服务端改用其它群组时 MODE 跟随；配置接口不可用时仍按一对多交给服务端', async () => {
+  const h1 = harness({ configured: true, serverTopic: 'team-env' });
+  await h1.node('#scan').onclick();
+  assert.equal(h1.pushes()[0].body.topic, '');
+  assert.equal(h1.node('#pushMode').textContent, '一对多 · 群组 team-env');
+  assert.match(h1.node('#pushStatus').textContent, /一对多 · team-env/);
+
+  const h2 = harness({ token: 'test-only', configFails: true });
+  await h2.node('#scan').onclick();
+  assert.equal(h2.pushes().length, 1);
+  assert.equal(h2.pushes()[0].body.topic, '');
+  assert.equal(h2.node('#pushMode').textContent, '一对多 · 默认群组');
+  assert.match(h2.node('#pushStatus').textContent, /PUSHED 1\/1 · 一对多 · oai\.1/);
+});
+
+test('工作流手动与定时推送都按一对多发送（默认群组 oai.1），标题统一，镜像一致', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/oai.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /^env:\n  NODE_VERSION: 20\n(?:  #[^\n]*\n)?  PUSHPLUS_DEFAULT_TOPIC: 'oai\.1'$/m);
+  assert.match(workflow, /pushplus_topic:\s+description:[^\n]+\s+required: false\s+default: ''/);
+  assert.match(workflow, /PUSHPLUS_TOPIC: \$\{\{ inputs\.pushplus_topic != '' && inputs\.pushplus_topic \|\| secrets\.PUSHPLUS_TOPIC \}\}/);
+  assert.match(workflow, /PUSHPLUS_TOPIC: \$\{\{ secrets\.PUSHPLUS_TOPIC \}\}/);
+  assert.equal(workflow.match(/const topic = String\(process\.env\.PUSHPLUS_TOPIC \|\| ''\)\.trim\(\) \|\| String\(process\.env\.PUSHPLUS_DEFAULT_TOPIC \|\| ''\)\.trim\(\);/g)?.length, 2);
+  assert.equal(workflow.match(/channel: 'wechat', topic \}\);/g)?.length, 2);
+  assert.equal(workflow.match(/const title = '章鱼 AI · 舆情量化分析';/g)?.length, 2);
+  assert.ok(!/一对一|章鱼 AI 全景分析/.test(workflow));
+  assert.equal(workflow, await readFile(new URL('../ci.yml.new', import.meta.url), 'utf8'));
+});
+
+test('每条 AI 多空概率一行显示：网页与手动推送都不附模型 / 免责 / 未读正文说明', async () => {
+  const items = [
+    { ...item(), bullBear: { bull: 62, bear: 38, note: '偏多：反弹', source: 'ai' } },
+    { ...item(), title: '无字幕条目', transcript: '', status: '仅供参考，不做推荐',
+      bullBear: { bull: 47, bear: 53, note: '中性：未出现明确方向信号（仅标题）', source: 'rule' } }
+  ];
+  const h = harness({ token: 'test-only', items });
+  await h.node('#scan').onclick();
+
+  const web = h.node('#results').innerHTML;
+  const webLines = web.match(/<div class="longshort">[\s\S]*?<\/div>/g) || [];
+  assert.equal(webLines.length, 2);
+  assert.match(webLines[0], /<span class="ls-badge">AI 多空概率<\/span>\s*<span class="ls-v bull">多 62%<\/span>\s*<span class="ls-bar"><b>██████<\/b>░░░░<\/span>\s*<span class="ls-v bear">空 38%<\/span>/);
+  // 本地规则兜底不冒充 AI
+  assert.match(webLines[1], /<span class="ls-badge">规则多空概率<\/span>[\s\S]*多 47%[\s\S]*<b>█████<\/b>░░░░░[\s\S]*空 53%/);
+
+  const push = h.pushes()[0].body.content;
+  const pushLines = push.match(/<div style="margin-top:6px;padding:3\.75px 6px;[^"]*white-space:nowrap;[^"]*">.*?<\/div>/g) || [];
+  assert.equal(pushLines.length, 2);
+  assert.equal(pushLines[0].replace(/<[^>]+>/g, ''), 'AI 多空概率 多 62% ██████░░░░ 空 38%');
+  assert.equal(pushLines[1].replace(/<[^>]+>/g, ''), '规则多空概率 多 47% █████░░░░░ 空 53%');
+  assert.match(push, /仅供参考，不做推荐/); // 无字幕状态徽章仍在
+  for (const html of [web, push]) {
+    assert.ok(!/模型：|仅供研究参考，不构成投资建议|未读取视频正文|概率仅依据标题与频道推算|仅标题/.test(html), html);
+  }
+  const css = await readFile(new URL('../style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.item \.longshort\s*\{[^}]*display: flex;[^}]*white-space: nowrap;/);
+  assert.ok(!/ls-row|ls-head/.test(css + source));
+});
+
+test('SA 推送卡片与定时推送模板：每条 AI 多空概率一行，不附模型 / 免责说明', async () => {
+  const { renderSeekingAlphaPush, buildDemoSeekingAlpha } = await import('../seekingalpha.mjs');
+  const { items } = buildDemoSeekingAlpha();
+  items[1].bullBear = { ...items[1].bullBear, source: 'rule' };
+  const cards = renderSeekingAlphaPush(items).split('<section').filter(c => c.includes('SA#'));
+  assert.equal(cards.length, items.filter(x => !x.error).length);
+  for (const card of cards) {
+    assert.equal(card.match(/white-space:nowrap;overflow:hidden;text-overflow:ellipsis;/g)?.length, 1);
+    assert.ok(!/模型：|仅供研究参考|未读取视频正文/.test(card), card);
+  }
+  assert.match(cards[0], />AI 多空概率<\/span> 多 \d+% █*<span style="color:#3f8f5b;">░*<\/span> 空 \d+%<\/div>/);
+  assert.match(cards[1], />规则多空概率<\/span>/);
+  const workflow = await readFile(new URL('../.github/workflows/oai.yml', import.meta.url), 'utf8');
+  assert.ok(!/未读取视频正文|仅供研究参考，不构成投资建议\$\{/.test(workflow));
+  assert.equal(workflow.match(/const lsBlock = x => \{/g)?.length, 2);
 });
 
 test('网页字号、行距、卡片留白均已收紧', async () => {

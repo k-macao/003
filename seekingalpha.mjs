@@ -172,22 +172,17 @@ export function normalizeSAItem(raw = {}, now = Date.now()) {
 export function renderSeekingAlphaPush(items = []) {
   const list = (items || []).filter(x => x && !x.error);
   if (!list.length) return '';
-  const lsBarPush = (v, w = 10) => {
-    const k = Math.max(0, Math.min(w, Math.round(v / 100 * w)));
-    return '█'.repeat(k) + '░'.repeat(w - k);
+  // 每条 AI 多空概率只占一行：徽章 + 多 X% + 分割条（█ 看多 / ░ 看空）+ 空 Y%，不附模型 / 免责说明；
+  // 本地规则兜底时徽章写「规则多空概率」，不冒充 AI 结果。
+  const lsSplit = (bull, w = 10) => {
+    const k = Math.max(0, Math.min(w, Math.round(bull / 100 * w)));
+    return { on: '█'.repeat(k), off: '░'.repeat(w - k) };
   };
   const cards = list.map((x, i) => {
-    const bb = normalizeProbability(x.bullBear) ? x.bullBear : null;
-    const ls = bb ? `
-        <div style="margin-top:6px;padding:6px 7.5px;background:#031203;border:1px solid #0d9b4c;">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:4.5px;font-family:'Courier New',Consolas,monospace;font-size:7px;flex-wrap:wrap;">
-            <span style="background:#00ff66;color:#041404;padding:0.75px 3.75px;font-weight:700;letter-spacing:0.5px;">AI 多空概率</span>
-            <span style="background:#041404;color:#b8f2cb;padding:0.75px 3.75px;font-weight:700;">多 ${bb.bull}% / 空 ${bb.bear}%</span>
-          </div>
-          <div style="margin-top:4.5px;font-family:'Courier New',Consolas,monospace;font-size:8.5px;color:#b8f2cb;font-weight:700;line-height:1.7;word-break:break-all;white-space:pre-wrap;">多 ${lsBarPush(bb.bull)} ${bb.bull}%
-空 ${lsBarPush(bb.bear)} ${bb.bear}%</div>
-          <div style="margin-top:3px;font-family:'Courier New',Consolas,monospace;font-size:7px;color:#63b47f;line-height:1.5;">${esc(bb.note || '')} · 模型：${esc(bb.source === 'ai' ? 'DeepSeek 多空推理' : '本地规则推算（未配置 AI Key）')} · 仅供研究参考，不构成投资建议</div>
-        </div>` : '';
+    const n = normalizeProbability(x.bullBear);
+    const bar = n ? lsSplit(n.bull) : null;
+    const ls = n ? `
+        <div style="margin-top:6px;padding:3.75px 6px;background:#031203;border:1px solid #0d9b4c;font-family:'Courier New',Consolas,monospace;font-size:8.5px;line-height:1.4;color:#b8f2cb;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span style="background:#00ff66;color:#041404;padding:0.75px 3.75px;font-size:7px;letter-spacing:0.5px;">${x.bullBear.source === 'ai' ? 'AI 多空概率' : '规则多空概率'}</span> 多 ${n.bull}% ${bar.on}<span style="color:#3f8f5b;">${bar.off}</span> 空 ${n.bear}%</div>` : '';
     return `
     <section style="margin:7.5px 0;border:1px solid #0d9b4c;background:#072007;box-shadow:0 0 6px rgba(0,255,102,0.15);font-family:'Courier New',Consolas,'SimSun',monospace;">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:4.5px;background:#00ff66;color:#041404;padding:2.25px 6px;font-family:'Courier New',Consolas,monospace;font-size:8px;font-weight:700;letter-spacing:1px;flex-wrap:wrap;">
