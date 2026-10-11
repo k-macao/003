@@ -35,6 +35,20 @@
   同样的说明性内容也已从网页首页移除，页面直接从「01 频道清单」开始。
 - **多模型混合部署架构**：底层结合使用了多种先进大语言模型（LLM），包括但不限于 Claude、ChatGPT、Gemini、Grok、Qwen 以及 Kimi。
 
+## 频道库：100 个粤语频道（新增入库）
+
+以下 100 个粤语频道已加入频道清单（网页端频道清单与工作流默认全量扫描同步），覆盖香港/澳门财经、新闻媒体、时政知识、大湾区、海外港人与生活娱乐，全部频道均经 YouTube 频道搜索逐一核实：
+
+- **财经投资（30）**：Now 財經 新聞、經濟一週 EDigest、RagaFinance財經台、阿豬 Ah Ju、溫鋼城投藝頻道、LION哥的投資世界、小翠時政財經、Tasty Money 港股直播室、熊麗萍Conita、財經拆局、住加財經 CanFin、富昌金融集團、郭Sir財經、全職炒家 RON LAU、陳sir港股美股分析@致富學院、樂在旅途財經人 連敬涵、粵語最財經、陽光財經粵語頻道、浮浪者 股市浪人、HKStockFinance、港樓x講事Channel、樓市專家 Ken Lui 呂宇健、Talk HK Property、SIU TING MAK、港股研究室、明報財經 MP Finance、灣區揭揭揭 - Tomson實錄、香港小電Callcall、OpenRice大灣區、大灣區夫婦 (Benny & Nicole)
+- **新闻媒体（30）**：TVB NEWS Official 無綫新聞、HOY 78 × 有線新聞 Cable News、香港01、RTHK 香港電台、香港電台公共事務組RTHK、星島頭條、明報 Mingpao、on.cc東網、am730、Sky Post晴報、商業電台 Hong Kong Toolbar、灼見名家 Master Insight、灼見名家保健養生、ISD, Hong Kong SAR Government 香港特區政府新聞處、香港新聞頻道、粵語新聞台、MPWeekly明周、星島娛樂、am娛樂、健康730、危險人物 Dangerous Person 2.0、午後檔案、BIGBIGAIR、UNWIRE.HK、Qooah.com、電影Ching報、HKJC、賽馬會青少年體育記者計劃、博擊會Fightclub、TVB (official)
+- **澳门（9）**：澳門日報-Macao Daily News、TDM 澳廣視新聞、澳廣視 MACAU TDM、macaogcs 澳門特別行政區政府新聞局、澳門力報 exmoo、澳門教區社會傳播中心CDMCS Macau、官方頻道澳亞衛視、澳門故事、澳門肥坤MacauWK Walker
+- **大湾区（5）**：Touch电视剧、Guangdong-Hong Kong-Macao Greater Bay Area粵港澳大灣區、大灣區的蟻民、大灣區侶遊 Couple Travel GBA、巴迪叔叔-港人移居大灣區的退休生活
+- **海外港人（7）**：新時代電視 Fairchild Television、Sing Tao A1 Chinese Radio、MingPaoCanada、MingPao Daily Vancouver明報溫哥華、Moon媽在英生活、走佬去UK、JASON
+- **美食生活（9）**：Ricky講煮講食、曾鎧琪 Alison【香港曾小妹】、May in Hong Kong 私の香港生活、K.A.T.、東京情報猿、香港美食 by Alexis、HKMINICHEF、リンモク 鈴木 Lingmuk【廣東話學習Vlog】、TVB 奇幻穿越劇場 (TVB Fantasy Drama)
+- **TVB娱乐（10）**：TVB 綜藝、TVB Anywhere Life、TVB Best Drama 熱播劇場、TVB Drama – Comedy 喜劇台、TVB Drama – Action & WuXia 動作武俠、TVB Drama - Crime & Mystery 神秘頻道、灼見名家文化教育、星島溫哥華、Fairchild TV FTV、香港人看英國新聞
+
+> 粤语频道与普通话财经频道同放在「中文频道」段（索引 0–153），英文内容源从索引 154 开始；网页端中英文交错排布逻辑（`ENGLISH_SOURCE_START`）已同步更新。
+
 ---
 
 ## 本地运行
@@ -81,14 +95,14 @@ npm start     # 启动服务
    - Secret: 你的 DeepSeek API key（[获取地址](https://platform.deepseek.com/api_keys)）
 2. 进入 Actions →「AI 扫描」→ Run workflow
 3. 可选项：
-   - `channels`：要扫描的频道，用 `|` 分隔，留空或填 `ALL` 则默认扫描全部 54 个频道
+   - `channels`：要扫描的频道，用 `|` 分隔，留空或填 `ALL` 则默认扫描全部 154 个频道
    - `push_to_wechat`：**默认勾选**，扫描完成后自动推送微信；可取消
    - `pushplus_token`：也可在此临时填入（会优先于 Secret）
    - `enable_ai_summary`：默认 `true`，扫描完成后会用 AI 对所有视频字幕做主题聚类总结，拼到推送内容顶部
 
 ### 定时自动推送
 
-- 工作流内置定时任务（`schedule`）：**每天澳门时间 09:00 与 17:00** 自动扫描全量 54 个频道并推送微信（对应 GitHub cron：`0 1 * * *` / `0 9 * * *`，UTC）。
+- 工作流内置定时任务（`schedule`）：**每天澳门时间 09:00 与 17:00** 自动扫描全量 154 个频道并推送微信（对应 GitHub cron：`0 1 * * *` / `0 9 * * *`，UTC）。
 - 只需配置好 `PUSHPLUS_TOKEN` Secret，到点即自动推；未配置 token 时仅扫描不推送。
 
 工作流会先跑构建与测试（Node 18 / 20），通过后执行扫描、生成 DOS 监视器 · 复古终端竖版 HTML 简报并调用 PushPlus 推送到微信。
