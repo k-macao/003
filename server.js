@@ -12,6 +12,7 @@ import {
 } from './seekingalpha.mjs';
 // 无头浏览器探针：轻量 HTTP 探针被限流（403 / 空页）时升级为真实浏览器渲染读取
 import { probeHeadlessDriver, fetchWithHeadless } from './headless.mjs';
+import { compactBriefHtml } from './html-compact.mjs';
 import {
   filterSensitiveHtml, filterSensitiveText, getSensitiveWordStats,
   SENSITIVE_REPLACEMENT
@@ -677,7 +678,8 @@ async function pushWechat({ token, title, content, template = 'html', channel = 
   content = stripStockSections(content);
   // 最后一关：对将要发出的页面可见文本做本地敏感词替换，标签和链接属性保持不变。
   const filteredContent = filterSensitiveHtml(content, { collectMatches: true });
-  content = filteredContent.text;
+  // 压缩无用标记并去掉重复区块后再计算长度与分条
+  content = compactBriefHtml(filteredContent.text);
   const rawTitle = title || '章鱼 AI · 舆情量化分析';
   const filteredTitle = filterSensitiveText(rawTitle, { collectMatches: true });
   const baseTitle = filteredTitle.text;
