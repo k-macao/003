@@ -47,7 +47,7 @@
 - **美食生活（9）**：Ricky講煮講食、曾鎧琪 Alison【香港曾小妹】、May in Hong Kong 私の香港生活、K.A.T.、東京情報猿、香港美食 by Alexis、HKMINICHEF、リンモク 鈴木 Lingmuk【廣東話學習Vlog】、TVB 奇幻穿越劇場 (TVB Fantasy Drama)
 - **TVB娱乐（10）**：TVB 綜藝、TVB Anywhere Life、TVB Best Drama 熱播劇場、TVB Drama – Comedy 喜劇台、TVB Drama – Action & WuXia 動作武俠、TVB Drama - Crime & Mystery 神秘頻道、灼見名家文化教育、星島溫哥華、Fairchild TV FTV、香港人看英國新聞
 
-> 粤语频道与普通话财经频道同放在「中文频道」段（索引 0–153），英文内容源从索引 154 开始；网页端中英文交错排布逻辑（`ENGLISH_SOURCE_START`）已同步更新。
+> 粤语频道与普通话财经频道同放在「中文频道」段（索引 0–152），英文内容源从索引 153 开始；网页端中英文交错排布逻辑（`ENGLISH_SOURCE_START`）已同步更新。
 
 ---
 
@@ -95,14 +95,14 @@ npm start     # 启动服务
    - Secret: 你的 DeepSeek API key（[获取地址](https://platform.deepseek.com/api_keys)）
 2. 进入 Actions →「AI 扫描」→ Run workflow
 3. 可选项：
-   - `channels`：要扫描的频道，用 `|` 分隔，留空或填 `ALL` 则默认扫描全部 154 个频道
+   - `channels`：要扫描的频道，用 `|` 分隔，留空或填 `ALL` 则默认扫描全部 153 个频道
    - `push_to_wechat`：**默认勾选**，扫描完成后自动推送微信；可取消
    - `pushplus_token`：也可在此临时填入（会优先于 Secret）
    - `enable_ai_summary`：默认 `true`，扫描完成后会用 AI 对所有视频字幕做主题聚类总结，拼到推送内容顶部
 
 ### 定时自动推送
 
-- 工作流内置定时任务（`schedule`）：**每天澳门时间 09:00 与 17:00** 自动扫描全量 154 个频道并推送微信（对应 GitHub cron：`0 1 * * *` / `0 9 * * *`，UTC）。
+- 工作流内置定时任务（`schedule`）：**每天澳门时间 09:00 与 17:00** 自动扫描全量 153 个频道并推送微信（对应 GitHub cron：`0 1 * * *` / `0 9 * * *`，UTC）。
 - 只需配置好 `PUSHPLUS_TOKEN` Secret，到点即自动推；未配置 token 时仅扫描不推送。
 
 工作流会先跑构建与测试（Node 18 / 20），通过后执行扫描、生成 DOS 监视器 · 复古终端竖版 HTML 简报并调用 PushPlus 推送到微信。
