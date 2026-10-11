@@ -159,6 +159,7 @@ jobs:
           node --input-type=module << 'NODE'
           import fs from 'node:fs';
           import { filterSensitiveHtml, filterSensitiveText, getSensitiveWordStats } from './sensitive-filter.mjs';
+          import { compactBriefHtml } from './html-compact.mjs';
           const scan = JSON.parse(fs.readFileSync('scan_result.json','utf8'));
           const allItems = scan.items || [];
           // 时效验证：只保留最近 72 小时内发布的内容（超时 / 无法验证发布时间 → 隐藏，不推送）
@@ -326,7 +327,7 @@ jobs:
           const title = '章鱼 AI · 舆情量化分析';
           const filteredTitle = filterSensitiveText(title, { collectMatches: true });
           const safeTitle = filteredTitle.text;
-          const content = filteredPage.text;
+          const content = compactBriefHtml(filteredPage.text);
           const sensitiveHits = filteredPage.matches.length + filteredTitle.matches.length;
           if (sensitiveHits) {
             const dict = getSensitiveWordStats();
@@ -460,6 +461,7 @@ jobs:
             node --input-type=module << 'NODE'
             import fs from 'node:fs';
             import { filterSensitiveHtml, filterSensitiveText, getSensitiveWordStats } from './sensitive-filter.mjs';
+          import { compactBriefHtml } from './html-compact.mjs';
             const scan = JSON.parse(fs.readFileSync('scan_result.json','utf8'));
             const allItems = scan.items || [];
             // 时效验证：只保留最近 72 小时内发布的内容（超时 / 无法验证发布时间 → 隐藏，不推送）
@@ -626,7 +628,7 @@ jobs:
             const title = '章鱼 AI · 舆情量化分析';
             const filteredTitle = filterSensitiveText(title, { collectMatches: true });
             const safeTitle = filteredTitle.text;
-            const content = filteredPage.text;
+            const content = compactBriefHtml(filteredPage.text);
             const sensitiveHits = filteredPage.matches.length + filteredTitle.matches.length;
             if (sensitiveHits) {
               const dict = getSensitiveWordStats();
