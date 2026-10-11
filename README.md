@@ -55,7 +55,7 @@
 
 ```bash
 npm install
-npm run check # 语法检查（server / app / ai / freshness / longshort）
+npm run check # 语法检查（server / app / ai / freshness / longshort / sensitive-filter）
 npm test      # 语法检查 + 时效、多空概率、字幕读取、紧凑版式与默认微信推送回归测试
 npm start     # 启动服务
 # 打开 http://localhost:3000
@@ -71,6 +71,14 @@ npm start     # 启动服务
 - 网页、手动工作流和定时工作流均使用 `channel: 'wechat'`，并默认带 `topic: 'oai.1'` 做**一对多群推送**（PushPlus 群组编码 `oai.1`，一次推送群内成员全部可达；可用环境变量 / Secret `PUSHPLUS_TOPIC` 覆盖群名）。本次更改默认配置不会主动触发工作流或发送现有数据。
 
 项目使用 [PushPlus（推送加）](https://www.pushplus.plus/) 把简报推送到微信公众号。
+
+## 推送前敏感词过滤
+
+- 推送前会对**最终 HTML 页面可见文本**统一扫描，命中本地词库的内容替换为 `xxx`；HTML 标签、链接属性和页面结构保持不变。
+- 网页 `/api/push`、手动工作流、定时工作流均在真正调用 PushPlus 前执行同一套过滤，避免绕过网页端直接推送。
+- 本地词库位于 `data/sensitive-words.txt`，来源为 [mimikin/AI-Sensitive-Word-Bank](https://github.com/mimikin/AI-Sensitive-Word-Bank)，固定于提交 [`b3d98147`](https://github.com/mimikin/AI-Sensitive-Word-Bank/commit/b3d98147a08a4af4600622c5ec110b53dee48093)，MIT 许可文本见 `data/AI-Sensitive-Word-Bank.LICENSE`。
+- 过滤器实现位于 `sensitive-filter.mjs`：读取源词库 Set 1–3，去重并支持部分跳字 / 拼音变体；源文件的 Set 4 保留在本地归档，但默认不启用，以免单字和常见词造成大面积误报。
+- 该词库来自第三方、内容可能不完整或过时；`xxx` 替换是发布前的保守屏蔽，不代表对敏感内容的完整合规保证。
 
 ### 获取 Token
 

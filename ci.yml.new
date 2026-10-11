@@ -158,6 +158,7 @@ jobs:
           # 生成 DOS 监视器 · 复古终端 HTML 并分条推送到 PushPlus
           node --input-type=module << 'NODE'
           import fs from 'node:fs';
+          import { filterSensitiveHtml, filterSensitiveText, getSensitiveWordStats } from './sensitive-filter.mjs';
           const scan = JSON.parse(fs.readFileSync('scan_result.json','utf8'));
           const allItems = scan.items || [];
           // 时效验证：只保留最近 72 小时内发布的内容（超时 / 无法验证发布时间 → 隐藏，不推送）
@@ -320,8 +321,17 @@ jobs:
           }
 
           // 不推个股页：发送前剥离个股板块/个股页
-          const content = stripStockSections((summaryHtml || '') + saHtml + baseContent);
+          // 与网页端 /api/push 同一套本地词库：只过滤页面可见文本，命中统一替换为 xxx。
+          const filteredPage = filterSensitiveHtml(stripStockSections((summaryHtml || '') + saHtml + baseContent), { collectMatches: true });
           const title = '章鱼 AI · 舆情量化分析';
+          const filteredTitle = filterSensitiveText(title, { collectMatches: true });
+          const safeTitle = filteredTitle.text;
+          const content = filteredPage.text;
+          const sensitiveHits = filteredPage.matches.length + filteredTitle.matches.length;
+          if (sensitiveHits) {
+            const dict = getSensitiveWordStats();
+            console.log(`[sensitive-filter] 推送前已将 ${sensitiveHits} 处命中替换为 xxx（本地词库 ${dict.words} 个词）`);
+          }
           fs.writeFileSync('brief.html', content);
 
           // 10 万文字控制：单条推送内容按字符数计，不超过 100,000 字符（10 万字），超出按 section 边界自动分条
@@ -347,14 +357,14 @@ jobs:
           let chunks= overhead>PUSHPLUS_MAX_CHARS ? splitHtmlBySections(content,PUSHPLUS_MAX_CHARS) : splitHtmlBySections(bodyOnly, PUSHPLUS_MAX_CHARS-overhead);
           if(!chunks.length){ const fb=(header+bodyOnly+footer)||content; chunks=splitHtmlBySections(fb,PUSHPLUS_MAX_CHARS); if(!chunks.length) chunks=[fb]; if(header||footer){header=''; footer='';} }
           console.log(`内容 ${htmlLen(content)} 字符（10 万字上限），分 ${chunks.length} 条发送`);
-          fs.writeFileSync('chunks.json', JSON.stringify({header, footer, chunks, title}, null, 2));
+          fs.writeFileSync('chunks.json', JSON.stringify({header, footer, chunks, title: safeTitle}, null, 2));
 
           const token = process.env.PUSHPLUS_TOKEN;
           // 一对多群推送：PushPlus 群组 topic（群名 oai.1），群内成员全部可达；可用 PUSHPLUS_TOPIC 覆盖
           const topic = String(process.env.PUSHPLUS_TOPIC || 'oai.1').trim();
           let okCount=0;
           for(let i=0;i<chunks.length;i++){
-            const partTitle = chunks.length>1 ? `${title} (${i+1}/${chunks.length})` : title;
+            const partTitle = chunks.length>1 ? `${safeTitle} (${i+1}/${chunks.length})` : safeTitle;
             const partContent = (header||footer) ? `${header}${chunks[i]}${footer}` : chunks[i];
             const payload = JSON.stringify({ token, title: partTitle, content: partContent, template: 'html', channel: 'wechat', ...(topic ? { topic } : {}) });
             console.log(`推送 ${i+1}/${chunks.length}: ${partTitle} (${htmlLen(partContent)} 字符${topic ? ' · 群 ' + topic : ''})`);
@@ -448,6 +458,7 @@ jobs:
           if [ -n "$PUSHPLUS_TOKEN" ]; then
             node --input-type=module << 'NODE'
             import fs from 'node:fs';
+            import { filterSensitiveHtml, filterSensitiveText, getSensitiveWordStats } from './sensitive-filter.mjs';
             const scan = JSON.parse(fs.readFileSync('scan_result.json','utf8'));
             const allItems = scan.items || [];
             // 时效验证：只保留最近 72 小时内发布的内容（超时 / 无法验证发布时间 → 隐藏，不推送）
@@ -609,8 +620,17 @@ jobs:
             }
 
             // 不推个股页：发送前剥离个股板块/个股页
-            const content = stripStockSections((summaryHtml || '') + saHtml + baseContent);
+            // 与网页端 /api/push 同一套本地词库：只过滤页面可见文本，命中统一替换为 xxx。
+            const filteredPage = filterSensitiveHtml(stripStockSections((summaryHtml || '') + saHtml + baseContent), { collectMatches: true });
             const title = '章鱼 AI · 舆情量化分析';
+            const filteredTitle = filterSensitiveText(title, { collectMatches: true });
+            const safeTitle = filteredTitle.text;
+            const content = filteredPage.text;
+            const sensitiveHits = filteredPage.matches.length + filteredTitle.matches.length;
+            if (sensitiveHits) {
+              const dict = getSensitiveWordStats();
+              console.log(`[sensitive-filter] 推送前已将 ${sensitiveHits} 处命中替换为 xxx（本地词库 ${dict.words} 个词）`);
+            }
             fs.writeFileSync('brief.html', content);
 
             // 10 万文字控制：单条推送内容按字符数计，不超过 100,000 字符（10 万字），超出按 section 边界自动分条
@@ -636,14 +656,14 @@ jobs:
             let chunks= overhead>PUSHPLUS_MAX_CHARS ? splitHtmlBySections(content,PUSHPLUS_MAX_CHARS) : splitHtmlBySections(bodyOnly, PUSHPLUS_MAX_CHARS-overhead);
             if(!chunks.length){ const fb=(header+bodyOnly+footer)||content; chunks=splitHtmlBySections(fb,PUSHPLUS_MAX_CHARS); if(!chunks.length) chunks=[fb]; if(header||footer){header=''; footer='';} }
             console.log(`内容 ${htmlLen(content)} 字符（10 万字上限），分 ${chunks.length} 条发送`);
-            fs.writeFileSync('chunks.json', JSON.stringify({header, footer, chunks, title}, null, 2));
+            fs.writeFileSync('chunks.json', JSON.stringify({header, footer, chunks, title: safeTitle}, null, 2));
 
             const token = process.env.PUSHPLUS_TOKEN;
             // 一对多群推送：PushPlus 群组 topic（群名 oai.1），群内成员全部可达；可用 PUSHPLUS_TOPIC 覆盖
             const topic = String(process.env.PUSHPLUS_TOPIC || 'oai.1').trim();
             let okCount=0;
             for(let i=0;i<chunks.length;i++){
-              const partTitle = chunks.length>1 ? `${title} (${i+1}/${chunks.length})` : title;
+              const partTitle = chunks.length>1 ? `${safeTitle} (${i+1}/${chunks.length})` : safeTitle;
               const partContent = (header||footer) ? `${header}${chunks[i]}${footer}` : chunks[i];
               const payload = JSON.stringify({ token, title: partTitle, content: partContent, template: 'html', channel: 'wechat', ...(topic ? { topic } : {}) });
               console.log(`推送 ${i+1}/${chunks.length}: ${partTitle} (${htmlLen(partContent)} 字符${topic ? ' · 群 ' + topic : ''})`);
