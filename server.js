@@ -9,6 +9,8 @@ import {
   SA_CHANNEL, SA_URL, parseSeekingAlphaList, parseSAPublished,
   normalizeSAItem, renderSeekingAlphaPush, buildDemoSeekingAlpha
 } from './seekingalpha.mjs';
+// 无头浏览器探针：轻量 HTTP 探针被限流（403 / 空页）时升级为真实浏览器渲染读取
+import { probeHeadlessDriver, fetchWithHeadless } from './headless.mjs';
 
 const PORT = process.env.PORT || 3000;
 const clean = s => String(s || '').replace(/台湾|台灣/g, '中国台湾').replace(/\s+/g, ' ').trim();
@@ -339,30 +341,56 @@ function buildDemoItems() {
 // ===================== 新栏目：Seeking Alpha 最新分析 =====================
 // 读取 seekingalpha.com/latest-articles → 解析文章列表 → 标题/摘要译为中文 → AI 多空概率。
 // 时效：SA 列表自带相对时间（Today, 5:28 PM / Yesterday / Oct. 7 …），按 72 小时窗口裁决。
-// 抓取失败（403 / 空页 / 超时）时如实报错，由上层决定是否降级示例数据，绝不静默伪造。
-async function scanSeekingAlpha(limit = 12) {
-  const now = Date.now();
-  const itemLimit = Math.max(1, Math.min(Number(limit) || 12, 25));
+//
+// 探针方式（分级降级，逐级升级）：
+//   探针 1/2：轻量 HTTP 探针（两套请求头直读列表页）；
+//   探针 3：无头浏览器探针（HTTP 被 403 / 空页限流时，升级为真实浏览器渲染读取，见 headless.mjs）；
+//   全部失败 → 如实报错，由上层决定是否降级示例数据，绝不静默伪造。
+async function fetchSeekingAlphaHtml() {
   const headersList = [
     { ...YT_HEADERS, Referer: 'https://seekingalpha.com/', 'Cache-Control': 'no-cache' },
     { ...YT_HEADERS_ALT, Referer: 'https://seekingalpha.com/' }
   ];
-  let html = '', lastErr = '';
-  for (const headers of headersList) {
+  let lastErr = '';
+  for (let i = 0; i < headersList.length; i++) {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 12000);
-      const r = await fetch(SA_URL, { headers, signal: controller.signal }).finally(() => clearTimeout(timer));
+      const r = await fetch(SA_URL, { headers: headersList[i], signal: controller.signal }).finally(() => clearTimeout(timer));
       if (!r.ok) throw Error('HTTP ' + r.status);
       const text = await r.text();
-      if (text && /\/article\/\d+-/.test(text)) { html = text; break; }
+      if (text && /\/article\/\d+-/.test(text)) {
+        console.log(`[sa] 探针 ${i + 1}（HTTP 直读）成功，${text.length} 字符`);
+        return { html: text, via: `http#${i + 1}` };
+      }
       lastErr = '页面无文章链接（可能被限流）';
-    } catch (e) { lastErr = e.message; }
+      console.log(`[sa] 探针 ${i + 1}（HTTP 直读）失败：${lastErr}`);
+    } catch (e) {
+      lastErr = e.message;
+      console.log(`[sa] 探针 ${i + 1}（HTTP 直读）失败：${lastErr}`);
+    }
   }
-  if (!html) throw Error(`Seeking Alpha 读取失败：${lastErr || '未知错误'}`);
+  // 探针 3：无头浏览器渲染读取（可选依赖，探针不可用时如实上报）
+  const probe = await probeHeadlessDriver();
+  if (!probe.available) {
+    throw Error(`Seeking Alpha 读取失败：HTTP 探针 ${lastErr || '未知错误'}；无头浏览器探针不可用（${probe.reason}）`);
+  }
+  console.log(`[sa] 探针 3（无头浏览器 ${probe.driver} @ ${probe.executablePath}）启动…`);
+  const hb = await fetchWithHeadless(SA_URL, { log: m => console.log(m) });
+  if (!hb.ok || !hb.html || !/\/article\/\d+-/.test(hb.html)) {
+    throw Error(`Seeking Alpha 读取失败：HTTP 探针 ${lastErr || '未知错误'}；无头浏览器探针 ${hb.error || '页面无文章链接'}`);
+  }
+  console.log(`[sa] 探针 3（无头浏览器）成功，${hb.html.length} 字符 / ${hb.ms}ms`);
+  return { html: hb.html, via: `headless:${hb.driver}` };
+}
+
+async function scanSeekingAlpha(limit = 12) {
+  const now = Date.now();
+  const itemLimit = Math.max(1, Math.min(Number(limit) || 12, 25));
+  const { html, via } = await fetchSeekingAlphaHtml();
   const raws = parseSeekingAlphaList(html);
   if (!raws.length) throw Error('Seeking Alpha 列表解析为空（页面结构变化或被限流）');
-  console.log(`[sa] 解析到 ${raws.length} 篇候选文章`);
+  console.log(`[sa] 解析到 ${raws.length} 篇候选文章（读取方式：${via}）`);
   const items = [], hidden = [];
   for (const raw of raws) {
     if (items.length >= itemLimit) break;
@@ -392,7 +420,7 @@ async function scanSeekingAlpha(limit = 12) {
     });
   } catch (e) { console.log('[sa] 多空概率异常（保留本地规则兜底）：', e.message); }
   if (hidden.length) console.log(`[sa] 隐藏 ${hidden.length} 条超出 ${FRESH_WINDOW_LABEL}窗口/无法验证的内容`);
-  return { items, hidden };
+  return { items, hidden, via };
 }
 
 async function runFlows(token) {
@@ -753,6 +781,7 @@ const server = http.createServer(async (req,res) => {
     return json(res, 200, {
       ok: true,
       demo: wantDemo,
+      via: out.via || (wantDemo ? 'demo' : ''),
       items: out.items,
       hiddenCount: (out.hidden || []).length,
       hidden: (out.hidden || []).slice(0, 20),
@@ -763,6 +792,15 @@ const server = http.createServer(async (req,res) => {
     });
   } catch (e) {
     return json(res, 502, { ok: false, error: e.message, source: SA_URL, demo: wantDemo });
+  }
+ }
+ if (u.pathname === '/api/headless-status' && req.method === 'GET') {
+  // 无头浏览器探针状态：驱动（playwright-core / puppeteer-core）与 Chromium 可执行文件探测结果
+  try {
+    const probe = await probeHeadlessDriver();
+    return json(res, 200, { ok: true, ...probe });
+  } catch (e) {
+    return json(res, 500, { ok: false, error: e.message });
   }
  }
  if (u.pathname === '/api/run-flows' && req.method === 'POST') {
