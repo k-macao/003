@@ -145,7 +145,7 @@ t('renderSummaryHtml 输出多空概率面板与风险/机会', () => {
   assert.match(html, /HOT_TOPICS\.DAT/);
 });
 t('无多空概率数据时不渲染该面板', () => {
-  const html = renderSummaryHtml({ main: '主线', hotTopics: [], risks: [], opportunities: [] }, { itemCount: 0 });
+  const html = renderSummaryHtml({ main: '归纳结论', hotTopics: [], risks: [], opportunities: [] }, { itemCount: 0 });
   assert.ok(!/LONG_SHORT\.PROB/.test(html));
 });
 t('五档色深：标题 / 突出 / 重点 / 正文 / 说明 互不相同', () => {
@@ -153,10 +153,10 @@ t('五档色深：标题 / 突出 / 重点 / 正文 / 说明 互不相同', () =
   const ramp = ['#eafff0', '#00ff66', '#b8f2cb', '#8fdca4', '#63b47f'];
   assert.equal(new Set(ramp).size, 5);
   const html = renderSummaryHtml(
-    { main: '主线结论', hotTopics: ['热点A'], risks: ['风险A'], opportunities: ['机会A'] },
+    { main: '归纳分析结论', hotTopics: ['热点A'], risks: ['风险A'], opportunities: ['机会A'] },
     { itemCount: 1, longShort: { bull: 58, bear: 42, count: 1, source: 'rule' } }
   );
-  assert.match(html, /color:#eafff0[^>]*>主线结论/);            // 标题：今日主线最亮
+  assert.match(html, /color:#eafff0[^>]*>归纳分析结论/);        // 标题：AI 归纳分析最亮
   assert.match(html, /background:#00ff66/);                     // 突出：反白徽章 / 标题栏
   assert.match(html, /color:#b8f2cb;font-weight:700;font-size:9.5px/); // 重点：要点列表
   assert.match(html, /color:#b8f2cb;font-weight:700;line-height:1.7/);  // 重点：多空概率数值
@@ -212,8 +212,8 @@ t('SA 推送块：五档色深 + 空列表不输出', () => {
   assert.match(html, /color:#63b47f/);   // 说明（英文原题 / 来源标注）
 });
 
-console.log('· 可量化的分析工作流（四步量化情绪分析 + 推送开头 AI 总结概括）');
-t('四步工作流：1.解析观看量/粉丝量 + 2.五档情绪打标 + 3.流量加权情绪指数 + 4.上下轨策略', () => {
+console.log('· 量化舆情分析（四步量化情绪分析 + 推送开头 AI 归纳分析）');
+t('四步量化舆情分析：1.解析观看量/粉丝量 + 2.五档情绪打标 + 3.流量加权情绪指数 + 4.上下轨策略', () => {
   assert.deepEqual(SENTIMENT_LABELS, ['极度乐观', '谨慎乐观', '中性观察', '谨慎悲观', '极度恐慌']);
   assert.equal(parseViewCount('4.8万次观看'), 48000);
   assert.equal(parseViewCount('120K views'), 120000);
@@ -243,7 +243,7 @@ t('四步工作流：1.解析观看量/粉丝量 + 2.五档情绪打标 + 3.流�
   const greedStrat = evaluateSentimentBandStrategy(82);
   assert.match(greedStrat.strategyAction, /分批止盈/);
 });
-t('推送开头 AI 总结概括：包含四步可量化工作流且通过敏感词过滤无 xxx 误杀', async () => {
+t('推送开头 AI 归纳分析：包含四步量化舆情分析、已删除「打标口径」整句且无 xxx 误杀', async () => {
   const savedKey = process.env.DEEPSEEK_API_KEY;
   delete process.env.DEEPSEEK_API_KEY;
   const sampleItems = [
@@ -252,18 +252,24 @@ t('推送开头 AI 总结概括：包含四步可量化工作流且通过敏感�
   ];
   const summary = await summarize(sampleItems);
   if (savedKey) process.env.DEEPSEEK_API_KEY = savedKey;
-  assert.ok(summary && summary.main.includes('可量化情绪分析工作流'));
+  assert.ok(summary && summary.main.includes('量化舆情分析'));
   const html = renderSummaryHtml(summary, { itemCount: sampleItems.length, items: sampleItems });
   assert.match(html, /C:\\AI\\SUMMARY\.EXE/);
   assert.match(html, /QUANT_WORKFLOW\.DAT/);
+  assert.match(html, /AI DIGEST \/ AI 归纳分析/);          // 今日主线看板 → AI 归纳分析
+  assert.ok(!/今日主线|MAIN QUEST/.test(html));             // 旧的「今日主线 · 可量化情绪分析概括」标题已移除
   assert.match(html, /1\. 数据采集（采集标题）/);
   assert.match(html, /2\. 文本与情绪打标/);
+  // 打标口径整句（「用大模型（或关键词脚本）将每个标题分类为…」）已删除，只保留五档分布 + 流量主导徽章
+  assert.ok(!/用大模型（或关键词脚本）/.test(html));
+  assert.ok(!/将每个标题分类为/.test(html));
+  assert.match(html, /流量主导: /);
   assert.match(html, /3\. 加权计算“情绪指数”/);
   assert.match(html, /4\. 绘制情绪曲线对照股价/);
   assert.match(html, /情绪极度恐慌时寻找左侧买点，情绪极度贪婪时考虑分批止盈/);
   const filtered = filterSensitiveHtml(html, { collectMatches: true });
   const zhHits = filtered.matches.filter(m => /[\u4e00-\u9fff]/.test(m.keyword));
-  assert.equal(zhHits.length, 0, `工作流中文文案不应命中敏感词: ${JSON.stringify(zhHits)}`);
+  assert.equal(zhHits.length, 0, `量化舆情分析中文文案不应命中敏感词: ${JSON.stringify(zhHits)}`);
 });
 
 await Promise.all(pending);

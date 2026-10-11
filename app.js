@@ -55,7 +55,7 @@ function relAgeMs(text) {
   return Number.isFinite(n) ? n * mult : null;
 }
 
-// ===================== AI 多空概率与四步可量化情绪分析工作流 =====================
+// ===================== AI 多空概率与四步量化舆情分析 =====================
 // 1. 数据采集（采集标题）：搜索关键词（如“大盘走势”、“股票分析”、“港股/美股”），记录前 20-30 个热门视频的：标题、博主粉丝量/观看量、发布时间。
 // 2. 文本与情绪打标：将每个标题分类为：极度乐观、谨慎乐观、中性观察、谨慎悲观、极度恐慌。
 // 3. 加权计算“情绪指数”：观看量越高的视频，其标题代表的情绪权重越大（算法流量倾斜代表大众正在受这种情绪影响）。
@@ -146,6 +146,7 @@ function computeQuantWorkflowFront(items = []) {
     count: counts[l] || 0,
     weightPct: list.length ? Math.round(((weights[l] || 0) / totalW) * 100) : 0
   }));
+  const dominantByWeight = [...distribution].sort((a, b) => (b.weightPct - a.weightPct) || (b.count - a.count))[0]?.label || '中性观察';
   const topVideos = [...list].sort((a, b) => (b.weight - a.weight) || (b.bull - a.bull)).slice(0, 30);
   let bandStatus, strategyAction;
   if (index <= 25) {
@@ -167,7 +168,7 @@ function computeQuantWorkflowFront(items = []) {
   const pos = Math.max(0, Math.min(19, Math.round((index / 100) * 19)));
   const gaugeChars = Array.from({ length: 20 }, (_, i) => i === pos ? '●' : (i === 5 || i === 15) ? '│' : i < pos ? '█' : '░').join('');
   const bandGauge = `下轨25[${gaugeChars}]上轨75`;
-  return { list, topVideos, distribution, index, unweighted, indexLabel, bandStatus, strategyAction, bandGauge };
+  return { list, topVideos, distribution, dominantByWeight, index, unweighted, indexLabel, bandStatus, strategyAction, bandGauge };
 }
 
 // 多 / 空 同一行显示（单行条形图）；每条卡片展示五档情绪标签与流量权重，不附「模型 / 免责 / 未读取正文」说明。
@@ -257,12 +258,12 @@ function render(items) {
   const quantHeaderHtml = quant.list.length ? `
     <article class="item" style="border-color:var(--neon);">
       <div class="meta">
-        <div class="ch-name"><span class="hl-badge">AI SUMMARY</span> C:\\AI\\QUANT_WORKFLOW.EXE · 可量化的分析工作流</div>
+        <div class="ch-name"><span class="hl-badge">AI SUMMARY</span> C:\\AI\\QUANT_WORKFLOW.EXE · 量化舆情分析</div>
         <div>大众情绪指数 ${quant.index}/100 · ${esc(quant.indexLabel)}</div>
       </div>
       <div class="transcript" style="margin-top:6px;">
         <div><b>1. 数据采集（采集标题）：</b>定期搜索关键词（${esc(QUANT_KEYWORDS_FRONT.join(' / '))}），记录前 20-30 个热门视频的：标题、博主粉丝量/观看量、发布时间（当前有效样本 ${quant.list.length} 条，热门前 ${quant.topVideos.length} 条）。</div>
-        <div style="margin-top:3px;"><b>2. 文本与情绪打标：</b>${quant.distribution.map(d => `${esc(d.label)} ${d.count}条(权重${d.weightPct}%)`).join(' ｜ ')}</div>
+        <div style="margin-top:3px;"><b>2. 文本与情绪打标：</b>流量主导 ${esc(quant.dominantByWeight)} ｜ ${quant.distribution.map(d => `${esc(d.label)} ${d.count}条(权重${d.weightPct}%)`).join(' ｜ ')}</div>
         <div style="margin-top:3px;"><b>3. 加权计算“情绪指数”：</b>观看量越高的视频情绪权重越大 → <b>大众情绪指数 ${quant.index}/100（${esc(quant.indexLabel)}）</b>｜等权均值 ${quant.unweighted}/100</div>
         <div style="margin-top:3px;"><b>4. 绘制情绪曲线对照股价：</b>${esc(quant.bandGauge)} · ${esc(quant.bandStatus)} → <b>${esc(quant.strategyAction)}</b></div>
       </div>
@@ -561,7 +562,7 @@ async function pushCurrentReport({ automatic = false } = {}) {
 
   // === PushPlus DOS 监视器 · 复古终端 微信竖版长页面推送模板 ===
   // 文字色深五档（微信会剥离 class，因此全部写 inline）：
-  //   标题 #eafff0 —— 视频标题、今日主线、署名行
+  //   标题 #eafff0 —— 视频标题、AI 归纳分析、署名行
   //   突出 #00ff66 —— 反白徽章、行内高亮词、DOS 窗口标题栏
   //   重点 #b8f2cb —— 要点列表、关键数字、多空概率数值
   //   正文 #8fdca4 —— 字幕摘录
@@ -615,15 +616,15 @@ async function pushCurrentReport({ automatic = false } = {}) {
           <span style="background:#041404;color:#00ff66;padding:0.75px 3.75px;">■</span>
           <span>C:\\AI\\SUMMARY.EXE</span>
         </div>
-        <span style="background:#041404;color:#00ff66;padding:0.75px 4.5px;">AI SUMMARY · 可量化的分析工作流 · ${q.list.length} 条</span>
+        <span style="background:#041404;color:#00ff66;padding:0.75px 4.5px;">AI SUMMARY · 量化舆情分析 · ${q.list.length} 条</span>
       </div>
       <div style="padding:7.5px 9px;">
         <div style="background:#031203;border:1px solid #0d9b4c;padding:6px 7.5px;">
-          <div style="font-size:8.5px;color:#00ff66;font-weight:700;margin-bottom:4px;">&gt; 可量化的分析工作流 · QUANT_WORKFLOW.DAT</div>
+          <div style="font-size:8.5px;color:#00ff66;font-weight:700;margin-bottom:4px;">&gt; 量化舆情分析 · QUANT_WORKFLOW.DAT</div>
           <div style="font-size:8px;color:#00ff66;font-weight:700;margin-bottom:3px;">1. 数据采集（采集标题）</div>
           <div style="font-size:8px;color:#8fdca4;line-height:1.5;">定期搜索关键词（${esc(QUANT_KEYWORDS_FRONT.join(' / '))}），记录前 20-30 个热门视频的：标题、博主粉丝量/观看量、发布时间（本次样本 ${q.list.length} 条，热门前 ${q.topVideos.length} 条）。</div>
           <div style="font-size:8px;color:#00ff66;font-weight:700;margin:4.5px 0 3px;">2. 文本与情绪打标（五档分类）</div>
-          <div style="font-size:8px;color:#b8f2cb;font-weight:700;line-height:1.5;">${distText}</div>
+          <div style="font-size:8px;color:#b8f2cb;font-weight:700;line-height:1.5;"><span style="display:inline-block;margin:1.5px 3px 1.5px 0;padding:1.5px 4.5px;background:#00ff66;color:#041404;font-size:7.5px;">流量主导: ${esc(q.dominantByWeight)}</span>${distText}</div>
           <div style="font-size:8px;color:#00ff66;font-weight:700;margin:4.5px 0 3px;">3. 加权计算“情绪指数”（观看量越高权重越大）</div>
           <div style="font-size:8.5px;color:#eafff0;font-weight:700;line-height:1.5;">大众情绪指数：${q.index}/100（${esc(q.indexLabel)}）｜等权均值：${q.unweighted}/100</div>
           ${topRows ? `<ul style="margin:4px 0 0;padding:0;list-style:none;">${topRows}</ul>` : ''}
@@ -711,14 +712,14 @@ async function pushCurrentReport({ automatic = false } = {}) {
 
   const setState = t => { const s = document.querySelector('#state'); if (s) s.textContent = t; };
   try {
-    setState('AI 总结中…');
+    setState('AI 归纳分析中…');
     setPushStatus('SUMMARIZING');
     let summaryHtml = '';
     try {
       const sr = await fetch('/api/summarize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: freshItems }) });
       const sd = await sr.json();
       if (sr.ok && sd && sd.ok && sd.summaryHtml) summaryHtml = sd.summaryHtml;
-    } catch (_) { /* 降级：使用本地四步可量化工作流总结 */ }
+    } catch (_) { /* 降级：使用本地四步量化舆情分析生成归纳分析 */ }
     if (!summaryHtml) summaryHtml = buildFallbackQuantSummaryPush(quantPush);
     // 新栏目：Seeking Alpha 最新分析块（仅真实读取成功时附加，绝不把示例数据当真实情报推送）
     let saHtml = '';
@@ -744,7 +745,7 @@ async function pushCurrentReport({ automatic = false } = {}) {
     const d = await r.json();
     if (!r.ok || !d.ok) throw Error(d.msg || d.error || ('HTTP ' + r.status));
     const sent = d.sentParts || 1, total = d.totalParts || 1;
-    if (!automatic) alert(`✅ 推送成功！\n已一对多推送到微信（PushPlus 群推送）—— DOS 复古终端全景简报已发送！\n${summaryHtml ? '🧠 已附加 AI 主题聚类总结\n' : ''}${saHtml ? '🌐 已附加 SEEKING ALPHA 最新分析栏目\n' : ''}发送 ${sent}/${total} 条` + (total > 1 ? `（超过限制自动分条发送）` : '') + (d.data ? `\n首条流水号：` + d.data : '') + `\n\n— 章鱼 AI · 舆情量化分析 —`);
+    if (!automatic) alert(`✅ 推送成功！\n已一对多推送到微信（PushPlus 群推送）—— DOS 复古终端全景简报已发送！\n${summaryHtml ? '🧠 已附加 AI 归纳分析\n' : ''}${saHtml ? '🌐 已附加 SEEKING ALPHA 最新分析栏目\n' : ''}发送 ${sent}/${total} 条` + (total > 1 ? `（超过限制自动分条发送）` : '') + (d.data ? `\n首条流水号：` + d.data : '') + `\n\n— 章鱼 AI · 舆情量化分析 —`);
     setState('已推送微信 · ' + sent + '/' + total);
     setPushStatus('PUSHED ' + sent + '/' + total);
   } catch (e) {

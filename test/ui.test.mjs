@@ -218,7 +218,7 @@ test('AI、SA、微信预览、手动和定时推送模板没有遗留大字号'
   }
 });
 
-test('推送开头包含 AI 可量化分析工作流总结概括，且每条标题展示五档情绪打标', async () => {
+test('推送开头包含 AI 归纳分析（量化舆情分析）且每条标题展示五档情绪打标', async () => {
   const h = harness({
     token: 'test-only',
     items: [
@@ -252,16 +252,23 @@ test('推送开头包含 AI 可量化分析工作流总结概括，且每条标�
   });
   await h.node('#scan').onclick();
   assert.match(h.node('#results').innerHTML, /QUANT_WORKFLOW\.EXE/);
+  assert.match(h.node('#results').innerHTML, /量化舆情分析/);
+  assert.match(h.node('#results').innerHTML, /流量主导 极度乐观/);
   assert.match(h.node('#results').innerHTML, /AI 多空概率 · 谨慎乐观/);
   assert.match(h.node('#results').innerHTML, /AI 多空概率 · 极度乐观/);
   const pushes = h.pushes();
   assert.equal(pushes.length, 1);
   const content = pushes[0].body.content;
-  // 推送开头为 AI 总结概括 + 四步可量化工作流（排在视频情报流 #1 之前）
+  // 推送开头为 AI 归纳分析 + 四步量化舆情分析（排在视频情报流 #1 之前）
   const summaryIdx = content.indexOf('C:\\AI\\SUMMARY.EXE');
   const cardIdx = content.indexOf('DIR ▸ 信報財經新聞');
-  assert.ok(summaryIdx >= 0 && cardIdx > summaryIdx, '推送开头应先输出 AI 总结概括再输出每条视频');
+  assert.ok(summaryIdx >= 0 && cardIdx > summaryIdx, '推送开头应先输出 AI 归纳分析再输出每条视频');
   assert.match(content, /QUANT_WORKFLOW\.DAT/);
+  assert.match(content, /量化舆情分析 · QUANT_WORKFLOW\.DAT/);  // 面板名：可量化的分析工作流 → 量化舆情分析
+  // 打标口径整句已删除，改为「五档分布 + 流量主导」徽章（推送开头看板另见 selftest 的 AI 归纳分析断言）
+  assert.ok(!/用大模型（或关键词脚本）/.test(content));
+  assert.ok(!/将每个标题分类为/.test(content));
+  assert.match(content, /流量主导: /);
   assert.match(content, /1\. 数据采集（采集标题）/);
   assert.match(content, /2\. 文本与情绪打标/);
   assert.match(content, /3\. 加权计算“情绪指数”/);
