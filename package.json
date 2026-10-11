@@ -4,7 +4,11 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check app.js && node --check ai.mjs && node --check freshness.mjs && node --check longshort.mjs && node --check seekingalpha.mjs && node --check captions.mjs",
+    "check": "node --check server.js && node --check app.js && node --check ai.mjs && node --check freshness.mjs && node --check longshort.mjs && node --check seekingalpha.mjs && node --check captions.mjs && node --check headless.mjs",
     "test": "npm run check && node test/selftest.mjs && node --test test/*.test.mjs"
+  },
+  "optionalDependencies": {
+    "playwright-core": "^1.64.0",
+    "puppeteer-core": "^25.13.0"
   }
 }

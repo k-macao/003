@@ -368,7 +368,7 @@ async function loadSeekingAlpha(forceDemo = false) {
     renderSA(lastSA);
     if (state) state.textContent = (d.demo || degraded)
       ? `示例数据 · ${lastSA.length} 条` + (degraded ? `（真实读取失败：${degraded}）` : '（离线预览）')
-      : `已读取 · ${lastSA.length} 条 · 时效验证 ✓ ${FRESH_WINDOW_LABEL}内`;
+      : `已读取 · ${lastSA.length} 条 · 时效验证 ✓ ${FRESH_WINDOW_LABEL}内` + (String(d.via || '').startsWith('headless') ? ' · 无头浏览器探针' : '');
   } catch (e) {
     if (state) state.textContent = '读取失败 / ERROR';
     box.innerHTML = `<span class="empty-kicker">SA FETCH FAILED</span>

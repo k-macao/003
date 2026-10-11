@@ -126,7 +126,34 @@ npm start     # 启动服务
 - **时效验证**：SA 列表自带相对时间（`Today, 5:28 PM` / `Yesterday` / `Oct. 7` …），按同一 **72 小时** 窗口裁决，超时或无法验证发布时间的内容隐藏。
 - **网页端**：独立栏目 `05 SEEKING ALPHA · 最新分析`（页面载入即读取，按钮 `[F3]` 手动刷新）；SA 对部分网络环境限流（403 / 空页）时**自动降级为示例数据并如实标注**。
 - **微信推送**：独立推送块（DOS 窗口 `C:\SA\LATEST.EXE`）插在 AI 总结之后；**仅真实读取成功时附加**，绝不把示例数据当真实情报推送；定时工作流推送同样附带该栏目。
+- **读取方式探针**：真实读取采用「探针方式」分级降级（详见下方「无头浏览器探针」一节）——轻量 HTTP 探针被 403 / 空页限流时自动升级为无头浏览器渲染读取；接口返回 `via` 字段（`http#1` / `http#2` / `headless:playwright-core` …），网页状态条会标注「无头浏览器探针」。
 - 合规口径与全文一致：仅供研究参考，不构成投资建议。
+
+## 无头浏览器探针（分级降级）
+
+SA 等站点会对机房 IP 限流（403 / 空页），纯 HTTP 探针读不到时，项目以**探针方式**逐级升级为无头浏览器真实渲染读取（`headless.mjs`）：
+
+1. **探针 1 / 2 · 轻量 HTTP 直读**：两套浏览器请求头直读列表页（原有路径，最快）；
+2. **探针 3 · 无头浏览器渲染**：HTTP 全部失败时，启动无头 Chromium 加载页面（屏蔽图片 / 字体 / 媒体 / 样式表以提速，附基础反自动化标记补丁），取渲染后的 DOM 交回同一套解析器；
+3. **全部失败**：如实报错（网页端降级示例数据并标注，推送端不附该栏目），绝不静默伪造。
+
+**方案调研（2026，网上公开资料）**：主流无头浏览器为 [Playwright](https://github.com/microsoft/playwright)（微软，Chromium/Firefox/WebKit，反检测通过率更高）与 [Puppeteer](https://github.com/puppeteer/puppeteer)（Google，CDP 直连）。本项目选用二者的 **`-core` 包**（`playwright-core` / `puppeteer-core`）：均为纯驱动库、**不捆绑浏览器下载**，作为 `optionalDependencies` 安装——装到哪个用哪个（playwright 系优先），安装失败也不影响主流程。
+
+**浏览器可执行文件探针**（`findBrowserExecutable`，逐级探测，取第一个存在的）：
+
+1. 环境变量：`HEADLESS_BROWSER_EXECUTABLE_PATH` / `CHROME_PATH` / `PUPPETEER_EXECUTABLE_PATH` / `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`；
+2. 平台常见安装路径（Linux `/usr/bin/chromium*`、`/usr/bin/google-chrome*`，macOS `/Applications/Google Chrome.app` 等；GitHub Actions `ubuntu-latest` 自带 `/usr/bin/google-chrome`，工作流无需改动）；
+3. `npx playwright install chromium` 的默认落点（`~/.cache/ms-playwright/chromium-*/…`）。
+
+```bash
+# 本地启用无头浏览器探针（任选其一）
+npx playwright install chromium                      # 或
+HEADLESS_BROWSER_EXECUTABLE_PATH=/path/to/chrome npm start
+# 探针状态自检
+curl http://localhost:3000/api/headless-status
+```
+
+探针不可用时 `/api/headless-status` 与扫描日志都会如实给出原因；`npm test` 中的探针回归测试不依赖真实浏览器与网络。
 
 ## 注意事项与规范
 
