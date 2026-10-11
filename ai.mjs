@@ -29,7 +29,7 @@ const DEFAULT_BASE = 'https://api.deepseek.com/v1';
 const DEFAULT_MODEL = 'deepseek-chat';
 const DEFAULT_TIMEOUT = 50000;
 const PER_VIDEO_TRANSCRIPT_CHARS = 4000; // 单条字幕喂给 AI 的上限
-const MAX_ITEMS = 200;                   // 安全上限（56 频道 × 3 = 168，留余量）
+const MAX_ITEMS = 200;                   // 安全上限（55 频道 × 3 = 165，留余量）
 
 function getConfig() {
   const apiKey = process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY;
