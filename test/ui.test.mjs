@@ -62,18 +62,18 @@ test('CK财经频道、Mr.Market市场先生已从网页和默认工作流扫描
   const names = sourceMatch[1].split('|');
   assert.ok(!names.includes('CK财经频道'));
   assert.ok(!names.includes('Mr.Market市场先生'));
-  assert.equal(names.length, 124);
-  assert.equal(names[54], 'Bloomberg Television');
-  assert.match(source, /const ENGLISH_SOURCE_START = 54;/);
+  assert.equal(names.length, 224);
+  assert.equal(names[154], 'Bloomberg Television');
+  assert.match(source, /const ENGLISH_SOURCE_START = 154;/);
 
   const workflow = await readFile(new URL('../.github/workflows/oai.yml', import.meta.url), 'utf8');
   assert.ok(!workflow.includes('CK财经频道'));
   assert.ok(!workflow.includes('Mr.Market市场先生'));
-  const defaults = [...workflow.matchAll(/(?:ALL_54_CHANNELS|CHANNELS_JSON)='([^']+)'/g)];
+  const defaults = [...workflow.matchAll(/(?:ALL_CHANNELS|CHANNELS_JSON)='([^']+)'/g)];
   assert.equal(defaults.length, 2);
   for (const [, json] of defaults) {
     const channels = JSON.parse(json);
-    assert.equal(channels.length, 54);
+    assert.equal(channels.length, 154);
     assert.ok(!channels.includes('CK财经频道'));
     assert.ok(!channels.includes('Mr.Market市场先生'));
   }
