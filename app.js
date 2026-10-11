@@ -55,7 +55,7 @@ function relAgeMs(text) {
   return Number.isFinite(n) ? n * mult : null;
 }
 
-// ===================== AI 多空概率与四步可量化情绪分析工作流 =====================
+// ===================== AI 多空概率与四步量化舆情分析 =====================
 // 1. 数据采集（采集标题）：搜索关键词（如“大盘走势”、“股票分析”、“港股/美股”），记录前 20-30 个热门视频的：标题、博主粉丝量/观看量、发布时间。
 // 2. 文本与情绪打标：将每个标题分类为：极度乐观、谨慎乐观、中性观察、谨慎悲观、极度恐慌。
 // 3. 加权计算“情绪指数”：观看量越高的视频，其标题代表的情绪权重越大（算法流量倾斜代表大众正在受这种情绪影响）。
@@ -257,7 +257,7 @@ function render(items) {
   const quantHeaderHtml = quant.list.length ? `
     <article class="item" style="border-color:var(--neon);">
       <div class="meta">
-        <div class="ch-name"><span class="hl-badge">AI SUMMARY</span> C:\\AI\\QUANT_WORKFLOW.EXE · 可量化的分析工作流</div>
+        <div class="ch-name"><span class="hl-badge">AI SUMMARY</span> C:\\AI\\QUANT_WORKFLOW.EXE · 量化舆情分析</div>
         <div>大众情绪指数 ${quant.index}/100 · ${esc(quant.indexLabel)}</div>
       </div>
       <div class="transcript" style="margin-top:6px;">
@@ -615,11 +615,11 @@ async function pushCurrentReport({ automatic = false } = {}) {
           <span style="background:#041404;color:#00ff66;padding:0.75px 3.75px;">■</span>
           <span>C:\\AI\\SUMMARY.EXE</span>
         </div>
-        <span style="background:#041404;color:#00ff66;padding:0.75px 4.5px;">AI SUMMARY · 可量化的分析工作流 · ${q.list.length} 条</span>
+        <span style="background:#041404;color:#00ff66;padding:0.75px 4.5px;">AI SUMMARY · 量化舆情分析 · ${q.list.length} 条</span>
       </div>
       <div style="padding:7.5px 9px;">
         <div style="background:#031203;border:1px solid #0d9b4c;padding:6px 7.5px;">
-          <div style="font-size:8.5px;color:#00ff66;font-weight:700;margin-bottom:4px;">&gt; 可量化的分析工作流 · QUANT_WORKFLOW.DAT</div>
+          <div style="font-size:8.5px;color:#00ff66;font-weight:700;margin-bottom:4px;">&gt; 量化舆情分析 · QUANT_WORKFLOW.DAT</div>
           <div style="font-size:8px;color:#00ff66;font-weight:700;margin-bottom:3px;">1. 数据采集（采集标题）</div>
           <div style="font-size:8px;color:#8fdca4;line-height:1.5;">定期搜索关键词（${esc(QUANT_KEYWORDS_FRONT.join(' / '))}），记录前 20-30 个热门视频的：标题、博主粉丝量/观看量、发布时间（本次样本 ${q.list.length} 条，热门前 ${q.topVideos.length} 条）。</div>
           <div style="font-size:8px;color:#00ff66;font-weight:700;margin:4.5px 0 3px;">2. 文本与情绪打标（五档分类）</div>
@@ -718,7 +718,7 @@ async function pushCurrentReport({ automatic = false } = {}) {
       const sr = await fetch('/api/summarize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: freshItems }) });
       const sd = await sr.json();
       if (sr.ok && sd && sd.ok && sd.summaryHtml) summaryHtml = sd.summaryHtml;
-    } catch (_) { /* 降级：使用本地四步可量化工作流总结 */ }
+    } catch (_) { /* 降级：使用本地四步量化舆情分析总结 */ }
     if (!summaryHtml) summaryHtml = buildFallbackQuantSummaryPush(quantPush);
     // 新栏目：Seeking Alpha 最新分析块（仅真实读取成功时附加，绝不把示例数据当真实情报推送）
     let saHtml = '';
