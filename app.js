@@ -55,8 +55,122 @@ function relAgeMs(text) {
   return Number.isFinite(n) ? n * mult : null;
 }
 
-// ===================== AI 多空概率（看多 / 看空） =====================
-// 多 / 空 同一行显示（单行条形图）；每条卡片不再附「模型 / 免责 / 未读取正文」说明，仅保留方向短注。
+// ===================== AI 多空概率与四步可量化情绪分析工作流 =====================
+// 1. 数据采集（采集标题）：搜索关键词（如“大盘走势”、“股票分析”、“港股/美股”），记录前 20-30 个热门视频的：标题、博主粉丝量/观看量、发布时间。
+// 2. 文本与情绪打标：将每个标题分类为：极度乐观、谨慎乐观、中性观察、谨慎悲观、极度恐慌。
+// 3. 加权计算“情绪指数”：观看量越高的视频，其标题代表的情绪权重越大（算法流量倾斜代表大众正在受这种情绪影响）。
+// 4. 绘制情绪曲线对照股价：将油管标题折算出的“大众情绪指数”与大盘走势做历史对照；当情绪指数触及历史上下轨（下轨25 / 上轨75）时，执行对应的交易策略（情绪极度恐慌时寻找左侧买点，情绪极度贪婪时考虑分批止盈）。
+const SENTIMENT_LABELS_FRONT = ['极度乐观', '谨慎乐观', '中性观察', '谨慎悲观', '极度恐慌'];
+const QUANT_KEYWORDS_FRONT = ['大盘走势', '股票分析', '港股/美股'];
+
+function sentimentLabelOf(x) {
+  const bb = x && (x.bullBear || x);
+  const rawLabel = String((bb && bb.sentiment) || (x && x.sentiment) || '').trim();
+  if (SENTIMENT_LABELS_FRONT.includes(rawLabel)) return rawLabel;
+  const bull = bb && typeof bb.bull === 'number' ? bb.bull : 50;
+  if (bull >= 75) return '极度乐观';
+  if (bull >= 56) return '谨慎乐观';
+  if (bull >= 45) return '中性观察';
+  if (bull >= 26) return '谨慎悲观';
+  return '极度恐慌';
+}
+
+function parseCountFront(raw) {
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 0) return Math.round(raw);
+  const s = String(raw ?? '').trim().replace(/,/g, '');
+  if (!s) return null;
+  const m = s.match(/(\d+(?:\.\d+)?)\s*(亿|億|万|萬|千|k|m|b)?/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  const u = (m[2] || '').toLowerCase();
+  const mult = (u === '亿' || u === '億') ? 1e8 : u === 'b' ? 1e9 : u === 'm' ? 1e6 : (u === '万' || u === '萬') ? 1e4 : (u === '千' || u === 'k') ? 1e3 : 1;
+  return Number.isFinite(n) ? Math.round(n * mult) : null;
+}
+
+function fmtCountFront(n, fallback = '') {
+  const v = typeof n === 'number' ? n : parseCountFront(n);
+  if (v == null) return fallback;
+  if (v >= 1e8) return (v / 1e8).toFixed(1).replace(/\.0$/, '') + '亿';
+  if (v >= 1e4) return (v / 1e4).toFixed(1).replace(/\.0$/, '') + '万';
+  return String(v);
+}
+
+function computeQuantWorkflowFront(items = []) {
+  const valid = (items || []).filter(x => x && !x.error);
+  const posViews = valid.map(x => parseCountFront(x.views ?? x.viewsText ?? x.bullBear?.views)).filter(v => v != null && v > 0);
+  const hasViews = posViews.length > 0;
+  const baseW = hasViews ? Math.max(100, Math.round(Math.min(...posViews) * 0.5)) : 1;
+  const list = valid.map((x, i) => {
+    const bull = x.bullBear && typeof x.bullBear.bull === 'number' ? x.bullBear.bull : 50;
+    const bear = 100 - bull;
+    const sentiment = sentimentLabelOf(x);
+    const views = parseCountFront(x.views ?? x.viewsText ?? x.bullBear?.views);
+    const subs = parseCountFront(x.subscribers ?? x.subscribersText);
+    const weight = views != null && views > 0
+      ? views + (subs != null && subs > 0 ? Math.round(subs * 0.05) : 0)
+      : subs != null && subs > 0 ? Math.max(100, Math.round(subs * 0.1)) : baseW;
+    const trafficLabel = [
+      views != null && views > 0 ? fmtCountFront(views) + '观看' : (x.viewsText || ''),
+      subs != null && subs > 0 ? fmtCountFront(subs) + '粉丝' : (x.subscribersText || '')
+    ].filter(Boolean).join(' / ') || '默认等权';
+    return {
+      idx: i + 1,
+      channel: x.channel || '?',
+      title: x.title || '(无标题)',
+      published: x.publishedLabel || x.published || '近期',
+      bull,
+      bear,
+      sentiment,
+      views,
+      trafficLabel,
+      weight: Math.max(1, weight),
+      raw: x
+    };
+  });
+  const totalW = list.reduce((a, b) => a + b.weight, 0) || 1;
+  list.forEach(it => {
+    it.weightPct = Number(((it.weight / totalW) * 100).toFixed(1));
+    if (it.raw && it.raw.bullBear) {
+      it.raw.bullBear.sentiment = it.sentiment;
+      it.raw.bullBear.weightPct = it.weightPct;
+    }
+  });
+  const index = list.length ? Math.max(5, Math.min(95, Math.round(list.reduce((a, b) => a + b.bull * b.weight, 0) / totalW))) : 50;
+  const unweighted = list.length ? Math.max(5, Math.min(95, Math.round(list.reduce((a, b) => a + b.bull, 0) / list.length))) : 50;
+  const indexLabel = sentimentLabelOf({ bull: index });
+  const counts = Object.fromEntries(SENTIMENT_LABELS_FRONT.map(l => [l, 0]));
+  const weights = Object.fromEntries(SENTIMENT_LABELS_FRONT.map(l => [l, 0]));
+  list.forEach(it => { counts[it.sentiment] = (counts[it.sentiment] || 0) + 1; weights[it.sentiment] = (weights[it.sentiment] || 0) + it.weight; });
+  const distribution = SENTIMENT_LABELS_FRONT.map(l => ({
+    label: l,
+    count: counts[l] || 0,
+    weightPct: list.length ? Math.round(((weights[l] || 0) / totalW) * 100) : 0
+  }));
+  const topVideos = [...list].sort((a, b) => (b.weight - a.weight) || (b.bull - a.bull)).slice(0, 30);
+  let bandStatus, strategyAction;
+  if (index <= 25) {
+    bandStatus = '触及历史下轨（≤25 极度恐慌区）';
+    strategyAction = '情绪极度恐慌时寻找左侧买点（大众恐慌集中宣泄，关注左侧分批布局窗口）';
+  } else if (index >= 75) {
+    bandStatus = '触及历史上轨（≥75 极度贪婪区）';
+    strategyAction = '情绪极度贪婪时考虑分批止盈（高流量倾斜于乐观标题，考虑分批止盈）';
+  } else if (index >= 56) {
+    bandStatus = `历史中枢偏上（56–74 谨慎乐观区 · 距上轨75差 ${75 - index} 点）`;
+    strategyAction = '当前谨慎乐观，跟踪大盘走势；若情绪指数触及历史上轨（≥75 极度贪婪）则考虑分批止盈';
+  } else if (index <= 44) {
+    bandStatus = `历史中枢偏下（26–44 谨慎悲观区 · 距下轨25差 ${index - 25} 点）`;
+    strategyAction = '当前谨慎悲观，保持防守观察；若情绪指数触及历史下轨（≤25 极度恐慌）则寻找左侧买点';
+  } else {
+    bandStatus = '历史中枢区间（45–55 中性观察区 · 下轨25 / 上轨75）';
+    strategyAction = '当前多空情绪均衡；当情绪指数触及历史下轨（≤25）时寻找左侧买点，触及历史上轨（≥75）时考虑分批止盈';
+  }
+  const pos = Math.max(0, Math.min(19, Math.round((index / 100) * 19)));
+  const gaugeChars = Array.from({ length: 20 }, (_, i) => i === pos ? '●' : (i === 5 || i === 15) ? '│' : i < pos ? '█' : '░').join('');
+  const bandGauge = `下轨25[${gaugeChars}]上轨75`;
+  return { list, topVideos, distribution, index, unweighted, indexLabel, bandStatus, strategyAction, bandGauge };
+}
+
+// 多 / 空 同一行显示（单行条形图）；每条卡片展示五档情绪标签与流量权重，不附「模型 / 免责 / 未读取正文」说明。
 function lsBar(v, width = 10) {
   const k = Math.max(0, Math.min(width, Math.round(v / 100 * width)));
   return '█'.repeat(k) + '░'.repeat(width - k);
@@ -64,9 +178,11 @@ function lsBar(v, width = 10) {
 function lsHtml(x) {
   const bb = x && x.bullBear;
   if (!bb || typeof bb.bull !== 'number') return '';
+  const tag = sentimentLabelOf(x);
+  const wText = bb.weightPct != null ? ` · 权重 ${bb.weightPct}%` : '';
   return `
         <div class="longshort">
-          <div class="ls-head"><span class="ls-badge">AI 多空概率</span><span class="ls-tag">多 ${bb.bull}% / 空 ${bb.bear}%</span></div>
+          <div class="ls-head"><span class="ls-badge">AI 多空概率 · ${esc(tag)}</span><span class="ls-tag">多 ${bb.bull}% / 空 ${bb.bear}%${esc(wText)}</span></div>
           <div class="ls-row"><span class="ls-k bull">多</span><span class="ls-bar bull">${lsBar(bb.bull)}</span><span class="ls-v bull">${bb.bull}%</span><span class="ls-sep">｜</span><span class="ls-k bear">空</span><span class="ls-bar bear">${lsBar(bb.bear)}</span><span class="ls-v bear">${bb.bear}%</span></div>
           ${bb.note ? `<div class="ls-note">${esc(bb.note)}</div>` : ''}
         </div>`;
@@ -123,6 +239,7 @@ function render(items) {
   const empty = document.querySelector('#empty');
   // 时效兜底：只渲染最近 72 小时之内的内容（服务端已过滤，此处二次校验）
   const visible = freshOnly(items);
+  const quant = computeQuantWorkflowFront(visible);
   if (empty) {
     if (visible.length) {
       empty.style.display = 'none';
@@ -134,10 +251,23 @@ function render(items) {
            <small class="empty-note">时效验证规则：仅保留发布时间在最近 ${FRESH_WINDOW_LABEL}之内的内容；无法验证发布时间的内容同样隐藏。</small>`
         : `<span class="empty-kicker">WAITING FOR SCAN</span>
            <div class="empty-line">选择频道后，点击「开始全景扫描」。</div>
-           <small class="empty-note">扫描结果将以「DOS 监视器 · 复古终端」竖版长页排版呈现，并附每条内容的 AI 多空概率。</small>`;
+           <small class="empty-note">扫描结果将以「DOS 监视器 · 复古终端」竖版长页排版呈现，并附每条内容的 AI 多空概率与五档情绪打标。</small>`;
     }
   }
-  out.innerHTML = visible.map((x, i) => x.error ? `
+  const quantHeaderHtml = quant.list.length ? `
+    <article class="item" style="border-color:var(--neon);">
+      <div class="meta">
+        <div class="ch-name"><span class="hl-badge">AI SUMMARY</span> C:\\AI\\QUANT_WORKFLOW.EXE · 可量化的分析工作流</div>
+        <div>大众情绪指数 ${quant.index}/100 · ${esc(quant.indexLabel)}</div>
+      </div>
+      <div class="transcript" style="margin-top:6px;">
+        <div><b>1. 数据采集（采集标题）：</b>定期搜索关键词（${esc(QUANT_KEYWORDS_FRONT.join(' / '))}），记录前 20-30 个热门视频的：标题、博主粉丝量/观看量、发布时间（当前有效样本 ${quant.list.length} 条，热门前 ${quant.topVideos.length} 条）。</div>
+        <div style="margin-top:3px;"><b>2. 文本与情绪打标：</b>${quant.distribution.map(d => `${esc(d.label)} ${d.count}条(权重${d.weightPct}%)`).join(' ｜ ')}</div>
+        <div style="margin-top:3px;"><b>3. 加权计算“情绪指数”：</b>观看量越高的视频情绪权重越大 → <b>大众情绪指数 ${quant.index}/100（${esc(quant.indexLabel)}）</b>｜等权均值 ${quant.unweighted}/100</div>
+        <div style="margin-top:3px;"><b>4. 绘制情绪曲线对照股价：</b>${esc(quant.bandGauge)} · ${esc(quant.bandStatus)} → <b>${esc(quant.strategyAction)}</b></div>
+      </div>
+    </article>` : '';
+  out.innerHTML = quantHeaderHtml + visible.map((x, i) => x.error ? `
     <article class="item error">
       <div class="meta">
         <span class="ch-name"><span class="hl-badge">[${i + 1}]</span> ${esc(x.channel)}</span>
@@ -154,7 +284,7 @@ function render(items) {
           ${esc(x.channel)}
           <span class="hl-badge fresh-badge">${FRESH_WINDOW_LABEL.toUpperCase()} ✓</span>
         </div>
-        <div>${esc(x.publishedLabel || x.published || '')}${x.publishedMacau ? ` · ${esc(x.publishedMacau)}` : ''} · ${esc(x.status || '')}${x.direction ? ` · ${esc(x.direction)}` : ''}</div>
+        <div>${esc(x.publishedLabel || x.published || '')}${x.publishedMacau ? ` · ${esc(x.publishedMacau)}` : ''}${x.viewsText ? ` · ${esc(x.viewsText)}` : ''}${x.subscribersText ? ` · ${esc(x.subscribersText)}` : ''} · ${esc(x.status || '')}${x.direction ? ` · ${esc(x.direction)}` : ''}</div>
       </div>
       <h3><a href="${esc(x.url)}" target="_blank" rel="noreferrer">${esc(x.title)}</a></h3>
       ${x.transcriptInfo ? `<div class="ls-note" style="margin:6px 9px;">${esc(x.transcriptInfo.message)}<details><summary>字幕读取诊断</summary>${esc((x.transcriptInfo.attempts || []).map(a => `${a.stage}: ${a.code}${a.httpStatus ? ' HTTP ' + a.httpStatus : ''}`).join(' · '))}</details></div>` : ''}
@@ -448,7 +578,8 @@ async function pushCurrentReport({ automatic = false } = {}) {
   };
   // 字幕行首时间戳（00:12）压到最暗一层，只当锚点用
   const fmtPush = t => esc(t).replace(/(^|\n)(\d{1,2}:\d{2}(?::\d{2})?)/g, '$1<span style="color:#2c6742;font-size:8px;">$2</span>');
-  // AI 多空概率（微信会剥离 class，全部 inline）：多 / 空 单行条形图；不附模型 / 免责 / 未读取正文说明
+  const quantPush = computeQuantWorkflowFront(freshItems);
+  // AI 多空概率 + 五档情绪标签（微信会剥离 class，全部 inline）：多 / 空 单行条形图；不附模型 / 免责 / 未读取正文说明
   const lsBarPush = (v, w = 10) => {
     const k = Math.max(0, Math.min(w, Math.round(v / 100 * w)));
     return '█'.repeat(k) + '░'.repeat(w - k);
@@ -456,15 +587,52 @@ async function pushCurrentReport({ automatic = false } = {}) {
   const lsBlockPush = x => {
     const bb = x.bullBear;
     if (!bb || typeof bb.bull !== 'number') return '';
+    const tag = sentimentLabelOf(x);
+    const wText = bb.weightPct != null ? ` · 权重 ${bb.weightPct}%` : '';
     return `
         <div style="margin-top:6px;padding:6px 7.5px;background:#031203;border:1px solid #0d9b4c;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:4.5px;font-family:'Courier New',Consolas,monospace;font-size:7px;flex-wrap:wrap;">
-            <span style="background:#00ff66;color:#041404;padding:0.75px 3.75px;font-weight:700;letter-spacing:0.5px;">AI 多空概率</span>
-            <span style="background:#041404;color:#b8f2cb;padding:0.75px 3.75px;font-weight:700;">多 ${bb.bull}% / 空 ${bb.bear}%</span>
+            <span style="background:#00ff66;color:#041404;padding:0.75px 3.75px;font-weight:700;letter-spacing:0.5px;">AI 多空概率 · ${esc(tag)}</span>
+            <span style="background:#041404;color:#b8f2cb;padding:0.75px 3.75px;font-weight:700;">多 ${bb.bull}% / 空 ${bb.bear}%${esc(wText)}</span>
           </div>
           <div style="margin-top:4.5px;font-family:'Courier New',Consolas,monospace;font-size:8.5px;color:#b8f2cb;font-weight:700;line-height:1.7;word-break:break-all;">多 ${lsBarPush(bb.bull)} ${bb.bull}% ｜ 空 ${lsBarPush(bb.bear)} ${bb.bear}%</div>
           ${bb.note ? `<div style="margin-top:3px;font-family:'Courier New',Consolas,monospace;font-size:7px;color:#63b47f;line-height:1.5;">${esc(bb.note)}</div>` : ''}
         </div>`;
+  };
+  const buildFallbackQuantSummaryPush = q => {
+    if (!q || !q.list.length) return '';
+    const distText = q.distribution.map(d => `${esc(d.label)} ${d.count}条(权重${d.weightPct}%)`).join(' ｜ ');
+    const topRows = q.topVideos.slice(0, 6).map((v, idx) =>
+      `<li style="margin:2.5px 0;padding:3px 5px;background:#041404;border-left:2px solid #0d9b4c;color:#8fdca4;font-size:8px;line-height:1.45;">` +
+      `<span style="background:#00ff66;color:#041404;padding:0.5px 3px;font-size:7px;font-weight:700;margin-right:3.5px;">#${idx + 1} ${esc(v.sentiment)}</span>` +
+      `<span style="color:#eafff0;font-weight:700;">${esc(v.title)}</span>` +
+      `<span style="color:#63b47f;font-size:7.5px;"> · ${esc(v.channel)} · ${esc(v.trafficLabel)} · ${esc(v.published)} · 权重 <b style="color:#b8f2cb;">${v.weightPct}%</b></span>` +
+      `</li>`
+    ).join('');
+    return `<section style="margin:9px 0;border:1px solid #0d9b4c;background:#072007;box-shadow:0 0 8px rgba(0,255,102,0.18);font-family:'Courier New',Consolas,'SimSun',monospace;">
+      <div style="display:flex;justify-content:space-between;align-items:center;background:#00ff66;color:#041404;padding:2.25px 6px;font-family:'Courier New',Consolas,monospace;font-size:8px;font-weight:700;letter-spacing:1px;flex-wrap:wrap;gap:3px;">
+        <div style="display:flex;align-items:center;gap:4.5px;">
+          <span style="background:#041404;color:#00ff66;padding:0.75px 3.75px;">■</span>
+          <span>C:\\AI\\SUMMARY.EXE</span>
+        </div>
+        <span style="background:#041404;color:#00ff66;padding:0.75px 4.5px;">AI SUMMARY · 可量化的分析工作流 · ${q.list.length} 条</span>
+      </div>
+      <div style="padding:7.5px 9px;">
+        <div style="background:#031203;border:1px solid #0d9b4c;padding:6px 7.5px;">
+          <div style="font-size:8.5px;color:#00ff66;font-weight:700;margin-bottom:4px;">&gt; 可量化的分析工作流 · QUANT_WORKFLOW.DAT</div>
+          <div style="font-size:8px;color:#00ff66;font-weight:700;margin-bottom:3px;">1. 数据采集（采集标题）</div>
+          <div style="font-size:8px;color:#8fdca4;line-height:1.5;">定期搜索关键词（${esc(QUANT_KEYWORDS_FRONT.join(' / '))}），记录前 20-30 个热门视频的：标题、博主粉丝量/观看量、发布时间（本次样本 ${q.list.length} 条，热门前 ${q.topVideos.length} 条）。</div>
+          <div style="font-size:8px;color:#00ff66;font-weight:700;margin:4.5px 0 3px;">2. 文本与情绪打标（五档分类）</div>
+          <div style="font-size:8px;color:#b8f2cb;font-weight:700;line-height:1.5;">${distText}</div>
+          <div style="font-size:8px;color:#00ff66;font-weight:700;margin:4.5px 0 3px;">3. 加权计算“情绪指数”（观看量越高权重越大）</div>
+          <div style="font-size:8.5px;color:#eafff0;font-weight:700;line-height:1.5;">大众情绪指数：${q.index}/100（${esc(q.indexLabel)}）｜等权均值：${q.unweighted}/100</div>
+          ${topRows ? `<ul style="margin:4px 0 0;padding:0;list-style:none;">${topRows}</ul>` : ''}
+          <div style="font-size:8px;color:#00ff66;font-weight:700;margin:4.5px 0 3px;">4. 绘制情绪曲线对照股价（历史上下轨 &amp; 交易策略）</div>
+          <div style="font-size:8px;color:#b8f2cb;font-weight:700;line-height:1.5;">${esc(q.bandGauge)} · ${esc(q.bandStatus)}</div>
+          <div style="font-size:8px;color:#8fdca4;line-height:1.5;">策略规则：${esc(q.strategyAction)}</div>
+        </div>
+      </div>
+    </section>`;
   };
 
   const items = freshItems.map((x, i) => x.error ?
@@ -486,7 +654,7 @@ async function pushCurrentReport({ automatic = false } = {}) {
         ${x.status ? `<span style="background:#041404;padding:0.75px 3.75px;flex-shrink:0;${TIER.body}">${esc(x.status)}</span>` : ''}
       </div>
       <div style="padding:7.5px 9px;">
-        <div style="${TIER.dim}font-family:'Courier New',Consolas,monospace;font-size:7.5px;letter-spacing:0.5px;">C:\\BRIEF\\LOGS&gt; ${esc(x.publishedLabel || x.published || '')}${x.publishedMacau ? ` · ${esc(x.publishedMacau)}` : ''} · 时效验证 ✓ ${esc(FRESH_WINDOW_LABEL)}内</div>
+        <div style="${TIER.dim}font-family:'Courier New',Consolas,monospace;font-size:7.5px;letter-spacing:0.5px;">C:\\BRIEF\\LOGS&gt; ${esc(x.publishedLabel || x.published || '')}${x.publishedMacau ? ` · ${esc(x.publishedMacau)}` : ''}${x.viewsText ? ` · ${esc(x.viewsText)}` : ''}${x.subscribersText ? ` · ${esc(x.subscribersText)}` : ''} · 时效验证 ✓ ${esc(FRESH_WINDOW_LABEL)}内</div>
         <h3 style="margin:4.5px 0 6px;">
           <a href="${esc(x.url)}" style="${TIER.title}font-size:11.5px;line-height:1.35;text-decoration:underline;text-decoration-color:#3f8f5b;text-underline-offset:3px;word-break:break-all;">&gt; ${esc(x.title)}</a>
         </h3>
@@ -550,7 +718,8 @@ async function pushCurrentReport({ automatic = false } = {}) {
       const sr = await fetch('/api/summarize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: freshItems }) });
       const sd = await sr.json();
       if (sr.ok && sd && sd.ok && sd.summaryHtml) summaryHtml = sd.summaryHtml;
-    } catch (_) { /* 降级：无总结 */ }
+    } catch (_) { /* 降级：使用本地四步可量化工作流总结 */ }
+    if (!summaryHtml) summaryHtml = buildFallbackQuantSummaryPush(quantPush);
     // 新栏目：Seeking Alpha 最新分析块（仅真实读取成功时附加，绝不把示例数据当真实情报推送）
     let saHtml = '';
     try {
