@@ -56,7 +56,7 @@ function relAgeMs(text) {
 }
 
 // ===================== AI 多空概率（看多 / 看空） =====================
-// 字幕读取状态独立展示；无字幕时只做标题推算，不冒充正文分析。
+// 多 / 空 同一行显示（单行条形图）；每条卡片不再附「模型 / 免责 / 未读取正文」说明，仅保留方向短注。
 function lsBar(v, width = 10) {
   const k = Math.max(0, Math.min(width, Math.round(v / 100 * width)));
   return '█'.repeat(k) + '░'.repeat(width - k);
@@ -64,14 +64,11 @@ function lsBar(v, width = 10) {
 function lsHtml(x) {
   const bb = x && x.bullBear;
   if (!bb || typeof bb.bull !== 'number') return '';
-  const src = bb.source === 'ai' ? '模型：DeepSeek 多空推理' : '模型：本地规则（未配置 AI Key）';
   return `
         <div class="longshort">
           <div class="ls-head"><span class="ls-badge">AI 多空概率</span><span class="ls-tag">多 ${bb.bull}% / 空 ${bb.bear}%</span></div>
-          <div class="ls-row bull"><span class="ls-k">多</span><span class="ls-bar">${lsBar(bb.bull)}</span><span class="ls-v">${bb.bull}%</span></div>
-          <div class="ls-row bear"><span class="ls-k">空</span><span class="ls-bar">${lsBar(bb.bear)}</span><span class="ls-v">${bb.bear}%</span></div>
-          <div class="ls-note">${esc(bb.note || '')} · ${src} · 仅供研究参考，不构成投资建议</div>
-          ${x.transcript ? '' : '<div class="ls-note">未读取视频正文 · 概率仅依据标题与频道推算，不代表已分析视频</div>'}
+          <div class="ls-row"><span class="ls-k bull">多</span><span class="ls-bar bull">${lsBar(bb.bull)}</span><span class="ls-v bull">${bb.bull}%</span><span class="ls-sep">｜</span><span class="ls-k bear">空</span><span class="ls-bar bear">${lsBar(bb.bear)}</span><span class="ls-v bear">${bb.bear}%</span></div>
+          ${bb.note ? `<div class="ls-note">${esc(bb.note)}</div>` : ''}
         </div>`;
 }
 
@@ -451,7 +448,7 @@ async function pushCurrentReport({ automatic = false } = {}) {
   };
   // 字幕行首时间戳（00:12）压到最暗一层，只当锚点用
   const fmtPush = t => esc(t).replace(/(^|\n)(\d{1,2}:\d{2}(?::\d{2})?)/g, '$1<span style="color:#2c6742;font-size:8px;">$2</span>');
-  // AI 多空概率（微信会剥离 class，全部 inline）：条形图 + 来源标注
+  // AI 多空概率（微信会剥离 class，全部 inline）：多 / 空 单行条形图；不附模型 / 免责 / 未读取正文说明
   const lsBarPush = (v, w = 10) => {
     const k = Math.max(0, Math.min(w, Math.round(v / 100 * w)));
     return '█'.repeat(k) + '░'.repeat(w - k);
@@ -459,16 +456,14 @@ async function pushCurrentReport({ automatic = false } = {}) {
   const lsBlockPush = x => {
     const bb = x.bullBear;
     if (!bb || typeof bb.bull !== 'number') return '';
-    const src = bb.source === 'ai' ? 'DeepSeek 多空推理' : '本地规则推算（未配置 AI Key）';
     return `
         <div style="margin-top:6px;padding:6px 7.5px;background:#031203;border:1px solid #0d9b4c;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:4.5px;font-family:'Courier New',Consolas,monospace;font-size:7px;flex-wrap:wrap;">
             <span style="background:#00ff66;color:#041404;padding:0.75px 3.75px;font-weight:700;letter-spacing:0.5px;">AI 多空概率</span>
             <span style="background:#041404;color:#b8f2cb;padding:0.75px 3.75px;font-weight:700;">多 ${bb.bull}% / 空 ${bb.bear}%</span>
           </div>
-          <div style="margin-top:4.5px;font-family:'Courier New',Consolas,monospace;font-size:8.5px;color:#b8f2cb;font-weight:700;line-height:1.7;word-break:break-all;white-space:pre-wrap;">多 ${lsBarPush(bb.bull)} ${bb.bull}%
-空 ${lsBarPush(bb.bear)} ${bb.bear}%</div>
-          <div style="margin-top:3px;font-family:'Courier New',Consolas,monospace;font-size:7px;color:#63b47f;line-height:1.5;">${esc(bb.note || '')} · 模型：${src} · 仅供研究参考，不构成投资建议${x.transcript ? '' : '<br>未读取视频正文 · 概率仅依据标题与频道推算，不代表已分析视频'}</div>
+          <div style="margin-top:4.5px;font-family:'Courier New',Consolas,monospace;font-size:8.5px;color:#b8f2cb;font-weight:700;line-height:1.7;word-break:break-all;">多 ${lsBarPush(bb.bull)} ${bb.bull}% ｜ 空 ${lsBarPush(bb.bear)} ${bb.bear}%</div>
+          ${bb.note ? `<div style="margin-top:3px;font-family:'Courier New',Consolas,monospace;font-size:7px;color:#63b47f;line-height:1.5;">${esc(bb.note)}</div>` : ''}
         </div>`;
   };
 
@@ -571,7 +566,7 @@ async function pushCurrentReport({ automatic = false } = {}) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         token,
-        title: '章鱼 AI 全景分析',
+        title: '章鱼 AI · 舆情量化分析',
         content,
         template: 'html',
         channel: 'wechat'
@@ -580,7 +575,7 @@ async function pushCurrentReport({ automatic = false } = {}) {
     const d = await r.json();
     if (!r.ok || !d.ok) throw Error(d.msg || d.error || ('HTTP ' + r.status));
     const sent = d.sentParts || 1, total = d.totalParts || 1;
-    if (!automatic) alert(`✅ 推送成功！\n已推送到微信（PushPlus）—— DOS 复古终端全景简报已发送！\n${summaryHtml ? '🧠 已附加 AI 主题聚类总结\n' : ''}${saHtml ? '🌐 已附加 SEEKING ALPHA 最新分析栏目\n' : ''}发送 ${sent}/${total} 条` + (total > 1 ? `（超过限制自动分条发送）` : '') + (d.data ? `\n首条流水号：` + d.data : '') + `\n\n— 章鱼 AI 全景分析 —`);
+    if (!automatic) alert(`✅ 推送成功！\n已一对多推送到微信（PushPlus 群推送）—— DOS 复古终端全景简报已发送！\n${summaryHtml ? '🧠 已附加 AI 主题聚类总结\n' : ''}${saHtml ? '🌐 已附加 SEEKING ALPHA 最新分析栏目\n' : ''}发送 ${sent}/${total} 条` + (total > 1 ? `（超过限制自动分条发送）` : '') + (d.data ? `\n首条流水号：` + d.data : '') + `\n\n— 章鱼 AI · 舆情量化分析 —`);
     setState('已推送微信 · ' + sent + '/' + total);
     setPushStatus('PUSHED ' + sent + '/' + total);
   } catch (e) {

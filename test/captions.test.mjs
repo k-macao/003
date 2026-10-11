@@ -98,7 +98,7 @@ test('网络错误仅尝试两个发现入口，不冒充视频没有字幕', as
   assert.equal(calls, 2);
   assert.equal(result.code, 'network_error');
   assert.equal(result.text, '');
-  assert.match(result.status, /仅标题/);
+  assert.equal(result.status, '仅供参考，不做推荐');
 });
 
 test('429 停止重试；403 保留诊断状态码', async () => {

@@ -113,6 +113,7 @@ jobs:
       - name: Scan and push to WeChat
         env:
           PUSHPLUS_TOKEN: ${{ inputs.pushplus_token != '' && inputs.pushplus_token || secrets.PUSHPLUS_TOKEN }}
+          PUSHPLUS_TOPIC: ${{ secrets.PUSHPLUS_TOPIC }}
           CHANNELS_INPUT: ${{ inputs.channels }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           ENABLE_AI_SUMMARY: ${{ inputs.enable_ai_summary }}
@@ -192,35 +193,19 @@ jobs:
           }
 
           // AI 多空概率（看多 / 看空）条形图：微信会剥离 class，因此全部 inline
-
+          // 多 / 空 同一行显示；每条不再附模型 / 免责 / 未读取正文等说明文字，仅保留方向短注
           const lsBar = (v, w = 10) => { const k = Math.max(0, Math.min(w, Math.round(v / 100 * w))); return '█'.repeat(k) + '░'.repeat(w - k); };
-
           const lsBlock = x => {
-
             const bb = x.bullBear;
-
             if (!bb || typeof bb.bull !== 'number') return '';
-
-            const src = bb.source === 'ai' ? 'DeepSeek 多空推理' : '本地规则推算（未配置 AI Key）';
-
             return `<div style="margin-top:6px;padding:6px 7.5px;background:#031203;border:1px solid #0d9b4c;">
-
                     <div style="display:flex;justify-content:space-between;align-items:center;gap:4.5px;font-family:'Courier New',Consolas,monospace;font-size:7px;flex-wrap:wrap;">
-
                       <span style="background:#00ff66;color:#041404;padding:0.75px 3.75px;font-weight:700;letter-spacing:0.5px;">AI 多空概率</span>
-
                       <span style="background:#041404;color:#b8f2cb;padding:0.75px 3.75px;font-weight:700;">多 ${bb.bull}% / 空 ${bb.bear}%</span>
-
                     </div>
-
-                    <div style="margin-top:4.5px;font-family:'Courier New',Consolas,monospace;font-size:8.5px;color:#b8f2cb;font-weight:700;line-height:1.7;word-break:break-all;white-space:pre-wrap;">多 ${lsBar(bb.bull)} ${bb.bull}%
-
-          空 ${lsBar(bb.bear)} ${bb.bear}%</div>
-
-                    <div style="margin-top:3px;font-family:'Courier New',Consolas,monospace;font-size:7px;color:#63b47f;line-height:1.5;">${esc(bb.note || '')} · 模型：${src} · 仅供研究参考，不构成投资建议${x.transcript ? '' : '<br>未读取视频正文 · 概率仅依据标题与频道推算，不代表已分析视频'}</div>
-
+                    <div style="margin-top:4.5px;font-family:'Courier New',Consolas,monospace;font-size:8.5px;color:#b8f2cb;font-weight:700;line-height:1.7;word-break:break-all;">多 ${lsBar(bb.bull)} ${bb.bull}% ｜ 空 ${lsBar(bb.bear)} ${bb.bear}%</div>
+                    ${bb.note ? `<div style="margin-top:3px;font-family:'Courier New',Consolas,monospace;font-size:7px;color:#63b47f;line-height:1.5;">${esc(bb.note)}</div>` : ''}
                   </div>`;
-
           };
 
           const sections = items.map((x,i)=> x.error
@@ -336,39 +321,43 @@ jobs:
 
           // 不推个股页：发送前剥离个股板块/个股页
           const content = stripStockSections((summaryHtml || '') + saHtml + baseContent);
-          const title = '章鱼 AI 全景分析';
+          const title = '章鱼 AI · 舆情量化分析';
           fs.writeFileSync('brief.html', content);
 
-          const PUSHPLUS_MAX_CHARS = 90000;
+          // 10 万文字控制：单条推送内容按字符数计，不超过 100,000 字符（10 万字），超出按 section 边界自动分条
+          const PUSHPLUS_MAX_CHARS = 100000;
+          const htmlLen = t => String(t || '').length;
           function splitHtmlBySections(html, maxChars = PUSHPLUS_MAX_CHARS) {
             const parts=[]; const secs = html.split(/(?=<section\b)/i).filter(s=>s.trim()); let buf='';
             const flush=()=>{ if(buf.trim()){ parts.push(buf); buf=''; } };
             const splitOversizedSection=(sec,max)=>{
-              const out=[]; const headMatch=sec.match(/^<section\b[^>]*>/i); const head=headMatch?headMatch[0]:'<section>'; const tailMatch=sec.match(/<\/section>\s*$/i); const tail=tailMatch?tailMatch[0]:'</section>'; const headEnd=headMatch?headMatch[0].length:9; const inner=sec.slice(headEnd, sec.length-tail.length); const pieceBudget=max-Buffer.byteLength(head+tail,'utf8');
-              if(pieceBudget<=0){ let s=sec; while(Buffer.byteLength(s,'utf8')>max){ let lo=0,hi=s.length; while(lo<hi){const mid=(lo+hi+1)>>1; if(Buffer.byteLength(s.slice(0,mid),'utf8')<=max) lo=mid; else hi=mid-1;} out.push(s.slice(0,lo)); s=s.slice(lo);} if(s) out.push(s); return out; }
+              const out=[]; const headMatch=sec.match(/^<section\b[^>]*>/i); const head=headMatch?headMatch[0]:'<section>'; const tailMatch=sec.match(/<\/section>\s*$/i); const tail=tailMatch?tailMatch[0]:'</section>'; const headEnd=headMatch?headMatch[0].length:9; const inner=sec.slice(headEnd, sec.length-tail.length); const pieceBudget=max-htmlLen(head+tail);
+              if(pieceBudget<=0){ let s=sec; while(htmlLen(s)>max){ let lo=0,hi=s.length; while(lo<hi){const mid=(lo+hi+1)>>1; if(htmlLen(s.slice(0,mid))<=max) lo=mid; else hi=mid-1;} out.push(s.slice(0,lo)); s=s.slice(lo);} if(s) out.push(s); return out; }
               const chunks=inner.split(/(?=<\/p>|<p\b|<br\s*\/?>|。)/i); let cur='';
-              for(const c of chunks){ if(Buffer.byteLength(c,'utf8')>pieceBudget){ if(cur){ out.push(head+cur+tail); cur=''; } let s=c; while(Buffer.byteLength(s,'utf8')>pieceBudget){ let lo=0,hi=s.length; while(lo<hi){const mid=(lo+hi+1)>>1; if(Buffer.byteLength(s.slice(0,mid),'utf8')<=pieceBudget) lo=mid; else hi=mid-1;} let cut=lo; const win=s.slice(Math.max(0,lo-200),lo); const m=win.match(/[。！？\n]/g); if(m) cut=lo-200+win.lastIndexOf(m[m.length-1])+1; out.push(head+s.slice(0,cut)+tail); s=s.slice(cut);} if(s) cur=s; } else if(Buffer.byteLength(cur+c,'utf8')>pieceBudget && cur){ out.push(head+cur+tail); cur=c; } else { cur+=c; } } if(cur) out.push(head+cur+tail); return out;
+              for(const c of chunks){ if(htmlLen(c)>pieceBudget){ if(cur){ out.push(head+cur+tail); cur=''; } let s=c; while(htmlLen(s)>pieceBudget){ let lo=0,hi=s.length; while(lo<hi){const mid=(lo+hi+1)>>1; if(htmlLen(s.slice(0,mid))<=pieceBudget) lo=mid; else hi=mid-1;} let cut=lo; const win=s.slice(Math.max(0,lo-200),lo); const m=win.match(/[。！？\n]/g); if(m) cut=lo-200+win.lastIndexOf(m[m.length-1])+1; out.push(head+s.slice(0,cut)+tail); s=s.slice(cut);} if(s) cur=s; } else if(htmlLen(cur+c)>pieceBudget && cur){ out.push(head+cur+tail); cur=c; } else { cur+=c; } } if(cur) out.push(head+cur+tail); return out;
             };
-            for(const sec of secs){ if(Buffer.byteLength(sec,'utf8')>maxChars){ flush(); for(const p of splitOversizedSection(sec,maxChars)) parts.push(p); continue; } if(Buffer.byteLength(buf+sec,'utf8')>maxChars) flush(); buf+=sec; } flush(); return parts;
+            for(const sec of secs){ if(htmlLen(sec)>maxChars){ flush(); for(const p of splitOversizedSection(sec,maxChars)) parts.push(p); continue; } if(htmlLen(buf+sec)>maxChars) flush(); buf+=sec; } flush(); return parts;
           }
 
           let header='', footer='', bodyOnly=content;
           const firstIdx=content.search(/<section\b/i); const lastEnd=content.toLowerCase().lastIndexOf('</section>');
           if(firstIdx!==-1 && lastEnd!==-1 && lastEnd>firstIdx){ header=content.slice(0,firstIdx); footer=content.slice(lastEnd+'</section>'.length); bodyOnly=content.slice(firstIdx,lastEnd+'</section>'.length); }
           else if(firstIdx!==-1){ header=content.slice(0,firstIdx); bodyOnly=content.slice(firstIdx); footer=''; }
-          const overhead=Buffer.byteLength(header+footer,'utf8');
-          let chunks= overhead>90000 ? splitHtmlBySections(content,90000) : splitHtmlBySections(bodyOnly, 90000-overhead);
-          if(!chunks.length){ const fb=(header+bodyOnly+footer)||content; chunks=splitHtmlBySections(fb,90000); if(!chunks.length) chunks=[fb]; if(header||footer){header=''; footer='';} }
-          console.log(`内容 ${Buffer.byteLength(content,'utf8')} 字节，分 ${chunks.length} 条发送`);
+          const overhead=htmlLen(header+footer);
+          let chunks= overhead>PUSHPLUS_MAX_CHARS ? splitHtmlBySections(content,PUSHPLUS_MAX_CHARS) : splitHtmlBySections(bodyOnly, PUSHPLUS_MAX_CHARS-overhead);
+          if(!chunks.length){ const fb=(header+bodyOnly+footer)||content; chunks=splitHtmlBySections(fb,PUSHPLUS_MAX_CHARS); if(!chunks.length) chunks=[fb]; if(header||footer){header=''; footer='';} }
+          console.log(`内容 ${htmlLen(content)} 字符（10 万字上限），分 ${chunks.length} 条发送`);
           fs.writeFileSync('chunks.json', JSON.stringify({header, footer, chunks, title}, null, 2));
 
           const token = process.env.PUSHPLUS_TOKEN;
+          // 一对多群推送：PushPlus 群组 topic（群名 oai.1），群内成员全部可达；可用 PUSHPLUS_TOPIC 覆盖
+          const topic = String(process.env.PUSHPLUS_TOPIC || 'oai.1').trim();
           let okCount=0;
           for(let i=0;i<chunks.length;i++){
             const partTitle = chunks.length>1 ? `${title} (${i+1}/${chunks.length})` : title;
             const partContent = (header||footer) ? `${header}${chunks[i]}${footer}` : chunks[i];
-            const payload = JSON.stringify({ token, title: partTitle, content: partContent, template: 'html', channel: 'wechat' });
-            console.log(`推送 ${i+1}/${chunks.length}: ${partTitle} (${Buffer.byteLength(partContent,'utf8')} bytes)`);
+            const payload = JSON.stringify({ token, title: partTitle, content: partContent, template: 'html', channel: 'wechat', ...(topic ? { topic } : {}) });
+            console.log(`推送 ${i+1}/${chunks.length}: ${partTitle} (${htmlLen(partContent)} 字符${topic ? ' · 群 ' + topic : ''})`);
             let r, text, data;
             try {
               r = await fetch('https://www.pushplus.plus/send', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: payload });
@@ -429,6 +418,7 @@ jobs:
       - name: Daily scan and push
         env:
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          PUSHPLUS_TOPIC: ${{ secrets.PUSHPLUS_TOPIC }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           if [ -z "$PUSHPLUS_TOKEN" ]; then
@@ -492,35 +482,19 @@ jobs:
             }
 
             // AI 多空概率（看多 / 看空）条形图：微信会剥离 class，因此全部 inline
-
+            // 多 / 空 同一行显示；每条不再附模型 / 免责 / 未读取正文等说明文字，仅保留方向短注
             const lsBar = (v, w = 10) => { const k = Math.max(0, Math.min(w, Math.round(v / 100 * w))); return '█'.repeat(k) + '░'.repeat(w - k); };
-
             const lsBlock = x => {
-
               const bb = x.bullBear;
-
               if (!bb || typeof bb.bull !== 'number') return '';
-
-              const src = bb.source === 'ai' ? 'DeepSeek 多空推理' : '本地规则推算（未配置 AI Key）';
-
               return `<div style="margin-top:6px;padding:6px 7.5px;background:#031203;border:1px solid #0d9b4c;">
-
                       <div style="display:flex;justify-content:space-between;align-items:center;gap:4.5px;font-family:'Courier New',Consolas,monospace;font-size:7px;flex-wrap:wrap;">
-
                         <span style="background:#00ff66;color:#041404;padding:0.75px 3.75px;font-weight:700;letter-spacing:0.5px;">AI 多空概率</span>
-
                         <span style="background:#041404;color:#b8f2cb;padding:0.75px 3.75px;font-weight:700;">多 ${bb.bull}% / 空 ${bb.bear}%</span>
-
                       </div>
-
-                      <div style="margin-top:4.5px;font-family:'Courier New',Consolas,monospace;font-size:8.5px;color:#b8f2cb;font-weight:700;line-height:1.7;word-break:break-all;white-space:pre-wrap;">多 ${lsBar(bb.bull)} ${bb.bull}%
-
-            空 ${lsBar(bb.bear)} ${bb.bear}%</div>
-
-                      <div style="margin-top:3px;font-family:'Courier New',Consolas,monospace;font-size:7px;color:#63b47f;line-height:1.5;">${esc(bb.note || '')} · 模型：${src} · 仅供研究参考，不构成投资建议${x.transcript ? '' : '<br>未读取视频正文 · 概率仅依据标题与频道推算，不代表已分析视频'}</div>
-
+                      <div style="margin-top:4.5px;font-family:'Courier New',Consolas,monospace;font-size:8.5px;color:#b8f2cb;font-weight:700;line-height:1.7;word-break:break-all;">多 ${lsBar(bb.bull)} ${bb.bull}% ｜ 空 ${lsBar(bb.bear)} ${bb.bear}%</div>
+                      ${bb.note ? `<div style="margin-top:3px;font-family:'Courier New',Consolas,monospace;font-size:7px;color:#63b47f;line-height:1.5;">${esc(bb.note)}</div>` : ''}
                     </div>`;
-
             };
 
             const sections = items.map((x,i)=> x.error
@@ -636,39 +610,43 @@ jobs:
 
             // 不推个股页：发送前剥离个股板块/个股页
             const content = stripStockSections((summaryHtml || '') + saHtml + baseContent);
-            const title = '章鱼 AI 全景分析';
+            const title = '章鱼 AI · 舆情量化分析';
             fs.writeFileSync('brief.html', content);
 
-            const PUSHPLUS_MAX_CHARS = 90000;
+            // 10 万文字控制：单条推送内容按字符数计，不超过 100,000 字符（10 万字），超出按 section 边界自动分条
+            const PUSHPLUS_MAX_CHARS = 100000;
+            const htmlLen = t => String(t || '').length;
             function splitHtmlBySections(html, maxChars = PUSHPLUS_MAX_CHARS) {
               const parts=[]; const secs = html.split(/(?=<section\b)/i).filter(s=>s.trim()); let buf='';
               const flush=()=>{ if(buf.trim()){ parts.push(buf); buf=''; } };
               const splitOversizedSection=(sec,max)=>{
-                const out=[]; const headMatch=sec.match(/^<section\b[^>]*>/i); const head=headMatch?headMatch[0]:'<section>'; const tailMatch=sec.match(/<\/section>\s*$/i); const tail=tailMatch?tailMatch[0]:'</section>'; const headEnd=headMatch?headMatch[0].length:9; const inner=sec.slice(headEnd, sec.length-tail.length); const pieceBudget=max-Buffer.byteLength(head+tail,'utf8');
-                if(pieceBudget<=0){ let s=sec; while(Buffer.byteLength(s,'utf8')>max){ let lo=0,hi=s.length; while(lo<hi){const mid=(lo+hi+1)>>1; if(Buffer.byteLength(s.slice(0,mid),'utf8')<=max) lo=mid; else hi=mid-1;} out.push(s.slice(0,lo)); s=s.slice(lo);} if(s) out.push(s); return out; }
+                const out=[]; const headMatch=sec.match(/^<section\b[^>]*>/i); const head=headMatch?headMatch[0]:'<section>'; const tailMatch=sec.match(/<\/section>\s*$/i); const tail=tailMatch?tailMatch[0]:'</section>'; const headEnd=headMatch?headMatch[0].length:9; const inner=sec.slice(headEnd, sec.length-tail.length); const pieceBudget=max-htmlLen(head+tail);
+                if(pieceBudget<=0){ let s=sec; while(htmlLen(s)>max){ let lo=0,hi=s.length; while(lo<hi){const mid=(lo+hi+1)>>1; if(htmlLen(s.slice(0,mid))<=max) lo=mid; else hi=mid-1;} out.push(s.slice(0,lo)); s=s.slice(lo);} if(s) out.push(s); return out; }
                 const chunks=inner.split(/(?=<\/p>|<p\b|<br\s*\/?>|。)/i); let cur='';
-                for(const c of chunks){ if(Buffer.byteLength(c,'utf8')>pieceBudget){ if(cur){ out.push(head+cur+tail); cur=''; } let s=c; while(Buffer.byteLength(s,'utf8')>pieceBudget){ let lo=0,hi=s.length; while(lo<hi){const mid=(lo+hi+1)>>1; if(Buffer.byteLength(s.slice(0,mid),'utf8')<=pieceBudget) lo=mid; else hi=mid-1;} let cut=lo; const win=s.slice(Math.max(0,lo-200),lo); const m=win.match(/[。！？\n]/g); if(m) cut=lo-200+win.lastIndexOf(m[m.length-1])+1; out.push(head+s.slice(0,cut)+tail); s=s.slice(cut);} if(s) cur=s; } else if(Buffer.byteLength(cur+c,'utf8')>pieceBudget && cur){ out.push(head+cur+tail); cur=c; } else { cur+=c; } } if(cur) out.push(head+cur+tail); return out;
+                for(const c of chunks){ if(htmlLen(c)>pieceBudget){ if(cur){ out.push(head+cur+tail); cur=''; } let s=c; while(htmlLen(s)>pieceBudget){ let lo=0,hi=s.length; while(lo<hi){const mid=(lo+hi+1)>>1; if(htmlLen(s.slice(0,mid))<=pieceBudget) lo=mid; else hi=mid-1;} let cut=lo; const win=s.slice(Math.max(0,lo-200),lo); const m=win.match(/[。！？\n]/g); if(m) cut=lo-200+win.lastIndexOf(m[m.length-1])+1; out.push(head+s.slice(0,cut)+tail); s=s.slice(cut);} if(s) cur=s; } else if(htmlLen(cur+c)>pieceBudget && cur){ out.push(head+cur+tail); cur=c; } else { cur+=c; } } if(cur) out.push(head+cur+tail); return out;
               };
-              for(const sec of secs){ if(Buffer.byteLength(sec,'utf8')>maxChars){ flush(); for(const p of splitOversizedSection(sec,maxChars)) parts.push(p); continue; } if(Buffer.byteLength(buf+sec,'utf8')>maxChars) flush(); buf+=sec; } flush(); return parts;
+              for(const sec of secs){ if(htmlLen(sec)>maxChars){ flush(); for(const p of splitOversizedSection(sec,maxChars)) parts.push(p); continue; } if(htmlLen(buf+sec)>maxChars) flush(); buf+=sec; } flush(); return parts;
             }
 
             let header='', footer='', bodyOnly=content;
             const firstIdx=content.search(/<section\b/i); const lastEnd=content.toLowerCase().lastIndexOf('</section>');
             if(firstIdx!==-1 && lastEnd!==-1 && lastEnd>firstIdx){ header=content.slice(0,firstIdx); footer=content.slice(lastEnd+'</section>'.length); bodyOnly=content.slice(firstIdx,lastEnd+'</section>'.length); }
             else if(firstIdx!==-1){ header=content.slice(0,firstIdx); bodyOnly=content.slice(firstIdx); footer=''; }
-            const overhead=Buffer.byteLength(header+footer,'utf8');
-            let chunks= overhead>90000 ? splitHtmlBySections(content,90000) : splitHtmlBySections(bodyOnly, 90000-overhead);
-            if(!chunks.length){ const fb=(header+bodyOnly+footer)||content; chunks=splitHtmlBySections(fb,90000); if(!chunks.length) chunks=[fb]; if(header||footer){header=''; footer='';} }
-            console.log(`内容 ${Buffer.byteLength(content,'utf8')} 字节，分 ${chunks.length} 条发送`);
+            const overhead=htmlLen(header+footer);
+            let chunks= overhead>PUSHPLUS_MAX_CHARS ? splitHtmlBySections(content,PUSHPLUS_MAX_CHARS) : splitHtmlBySections(bodyOnly, PUSHPLUS_MAX_CHARS-overhead);
+            if(!chunks.length){ const fb=(header+bodyOnly+footer)||content; chunks=splitHtmlBySections(fb,PUSHPLUS_MAX_CHARS); if(!chunks.length) chunks=[fb]; if(header||footer){header=''; footer='';} }
+            console.log(`内容 ${htmlLen(content)} 字符（10 万字上限），分 ${chunks.length} 条发送`);
             fs.writeFileSync('chunks.json', JSON.stringify({header, footer, chunks, title}, null, 2));
 
             const token = process.env.PUSHPLUS_TOKEN;
+            // 一对多群推送：PushPlus 群组 topic（群名 oai.1），群内成员全部可达；可用 PUSHPLUS_TOPIC 覆盖
+            const topic = String(process.env.PUSHPLUS_TOPIC || 'oai.1').trim();
             let okCount=0;
             for(let i=0;i<chunks.length;i++){
               const partTitle = chunks.length>1 ? `${title} (${i+1}/${chunks.length})` : title;
               const partContent = (header||footer) ? `${header}${chunks[i]}${footer}` : chunks[i];
-              const payload = JSON.stringify({ token, title: partTitle, content: partContent, template: 'html', channel: 'wechat' });
-              console.log(`推送 ${i+1}/${chunks.length}: ${partTitle} (${Buffer.byteLength(partContent,'utf8')} bytes)`);
+              const payload = JSON.stringify({ token, title: partTitle, content: partContent, template: 'html', channel: 'wechat', ...(topic ? { topic } : {}) });
+              console.log(`推送 ${i+1}/${chunks.length}: ${partTitle} (${htmlLen(partContent)} 字符${topic ? ' · 群 ' + topic : ''})`);
               let r, text, data;
               try {
                 r = await fetch('https://www.pushplus.plus/send', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: payload });

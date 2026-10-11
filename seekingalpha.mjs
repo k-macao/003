@@ -184,9 +184,8 @@ export function renderSeekingAlphaPush(items = []) {
             <span style="background:#00ff66;color:#041404;padding:0.75px 3.75px;font-weight:700;letter-spacing:0.5px;">AI 多空概率</span>
             <span style="background:#041404;color:#b8f2cb;padding:0.75px 3.75px;font-weight:700;">多 ${bb.bull}% / 空 ${bb.bear}%</span>
           </div>
-          <div style="margin-top:4.5px;font-family:'Courier New',Consolas,monospace;font-size:8.5px;color:#b8f2cb;font-weight:700;line-height:1.7;word-break:break-all;white-space:pre-wrap;">多 ${lsBarPush(bb.bull)} ${bb.bull}%
-空 ${lsBarPush(bb.bear)} ${bb.bear}%</div>
-          <div style="margin-top:3px;font-family:'Courier New',Consolas,monospace;font-size:7px;color:#63b47f;line-height:1.5;">${esc(bb.note || '')} · 模型：${esc(bb.source === 'ai' ? 'DeepSeek 多空推理' : '本地规则推算（未配置 AI Key）')} · 仅供研究参考，不构成投资建议</div>
+          <div style="margin-top:4.5px;font-family:'Courier New',Consolas,monospace;font-size:8.5px;color:#b8f2cb;font-weight:700;line-height:1.7;word-break:break-all;">多 ${lsBarPush(bb.bull)} ${bb.bull}% ｜ 空 ${lsBarPush(bb.bear)} ${bb.bear}%</div>
+          ${bb.note ? `<div style="margin-top:3px;font-family:'Courier New',Consolas,monospace;font-size:7px;color:#63b47f;line-height:1.5;">${esc(bb.note)}</div>` : ''}
         </div>` : '';
     return `
     <section style="margin:7.5px 0;border:1px solid #0d9b4c;background:#072007;box-shadow:0 0 6px rgba(0,255,102,0.15);font-family:'Courier New',Consolas,'SimSun',monospace;">

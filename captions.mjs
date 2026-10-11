@@ -77,8 +77,9 @@ function safeTrackUrl(raw) {
 export async function readCaptions(id, { fetchImpl = globalThis.fetch, timeoutMs = 8000, budgetMs = 25000 } = {}) {
   const attempts = [];
   const deadline = Date.now() + budgetMs;
+  // 无字幕时的状态文字：不再写「未读取到字幕（仅标题）」，统一改为「仅供参考，不做推荐」
   const empty = code => ({ text: '', source: 'none', language: '', translated: false,
-    status: '未读取到字幕（仅标题）', code, message: captionMessage(code), attempts });
+    status: '仅供参考，不做推荐', code, message: captionMessage(code), attempts });
   if (!/^[\w-]{11}$/.test(id)) return empty('invalid_id');
 
   async function request(url, stage) {
