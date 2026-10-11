@@ -217,3 +217,56 @@ test('AI、SA、微信预览、手动和定时推送模板没有遗留大字号'
     assert.ok(sizes.every(size => size >= 7 && size <= 11.5), name);
   }
 });
+
+test('推送开头包含 AI 可量化分析工作流总结概括，且每条标题展示五档情绪打标', async () => {
+  const h = harness({
+    token: 'test-only',
+    items: [
+      {
+        channel: '信報財經新聞',
+        title: '大盘走势：港股午後跌幅收窄 恒指重上18000點 內房板塊反彈',
+        url: 'https://youtu.be/test001',
+        published: '2 小时前',
+        publishedAt: new Date().toISOString(),
+        viewsText: '4.8万次观看',
+        views: 48000,
+        subscribersText: '32万粉丝',
+        subscribers: 320000,
+        status: '中文字幕',
+        bullBear: { bull: 68, bear: 32, sentiment: '谨慎乐观', weightPct: 72, note: '偏多：反弹 / 恒指' }
+      },
+      {
+        channel: 'Bloomberg Television',
+        title: '股票分析：港股/美股科技股領漲 標普500創新高',
+        url: 'https://youtu.be/test002',
+        published: '1 小时前',
+        publishedAt: new Date().toISOString(),
+        viewsText: '9.5万次观看',
+        views: 95000,
+        subscribersText: '120万粉丝',
+        subscribers: 1200000,
+        status: '自动字幕→中文',
+        bullBear: { bull: 78, bear: 22, sentiment: '极度乐观', weightPct: 28, note: '偏多：创新高 / 领涨' }
+      }
+    ]
+  });
+  await h.node('#scan').onclick();
+  assert.match(h.node('#results').innerHTML, /QUANT_WORKFLOW\.EXE/);
+  assert.match(h.node('#results').innerHTML, /AI 多空概率 · 谨慎乐观/);
+  assert.match(h.node('#results').innerHTML, /AI 多空概率 · 极度乐观/);
+  const pushes = h.pushes();
+  assert.equal(pushes.length, 1);
+  const content = pushes[0].body.content;
+  // 推送开头为 AI 总结概括 + 四步可量化工作流（排在视频情报流 #1 之前）
+  const summaryIdx = content.indexOf('C:\\AI\\SUMMARY.EXE');
+  const cardIdx = content.indexOf('DIR ▸ 信報財經新聞');
+  assert.ok(summaryIdx >= 0 && cardIdx > summaryIdx, '推送开头应先输出 AI 总结概括再输出每条视频');
+  assert.match(content, /QUANT_WORKFLOW\.DAT/);
+  assert.match(content, /1\. 数据采集（采集标题）/);
+  assert.match(content, /2\. 文本与情绪打标/);
+  assert.match(content, /3\. 加权计算“情绪指数”/);
+  assert.match(content, /4\. 绘制情绪曲线对照股价/);
+  assert.match(content, /AI 多空概率 · 谨慎乐观/);
+  assert.match(content, /AI 多空概率 · 极度乐观/);
+});
+

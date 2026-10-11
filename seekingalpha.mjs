@@ -11,7 +11,7 @@
 //       推送端仅在真实读取成功时附带该栏目，绝不把示例内容当真实情报推送。
 
 import { FRESH_WINDOW_LABEL, formatMacau, evaluateFreshness } from './freshness.mjs';
-import { ruleLongShort, normalizeProbability, aggregateLongShort, bullBearBar, probabilitySourceText } from './longshort.mjs';
+import { ruleLongShort, normalizeProbability, aggregateLongShort, bullBearBar, probabilitySourceText, sentimentLabel } from './longshort.mjs';
 
 export const SA_CHANNEL = 'Seeking Alpha · 最新分析';
 export const SA_URL = 'https://seekingalpha.com/latest-articles';
@@ -156,11 +156,12 @@ export function normalizeSAItem(raw = {}, now = Date.now()) {
   if (item.publishedAt) item.publishedMacau = formatMacau(item.publishedAt);
   const fresh = evaluateFreshness({ published: item.publishedLabel, publishedAt: item.publishedAt }, now);
   item._fresh = fresh;
-  // 兜底多空概率：本地规则（上层有 AI 时会覆盖）
+  // 兜底多空概率与五档情绪标签：本地规则（上层有 AI 时会覆盖）
   const guess = ruleLongShort({ title: `${item.title} ${item.originalTitle}`, transcript: item.summaryZh });
-  item.bullBear = raw.bullBear && normalizeProbability(raw.bullBear)
-    ? { bull: normalizeProbability(raw.bullBear).bull, bear: normalizeProbability(raw.bullBear).bear, note: raw.bullBear.note || guess.note, source: raw.bullBear.source || 'rule' }
-    : { bull: guess.bull, bear: guess.bear, note: guess.note, source: 'rule' };
+  const normProb = raw.bullBear && normalizeProbability(raw.bullBear);
+  item.bullBear = normProb
+    ? { bull: normProb.bull, bear: normProb.bear, sentiment: sentimentLabel({ ...raw.bullBear, bull: normProb.bull }), note: raw.bullBear.note || guess.note, source: raw.bullBear.source || 'rule' }
+    : { bull: guess.bull, bear: guess.bear, sentiment: guess.sentiment || sentimentLabel(guess.bull), note: guess.note, source: 'rule' };
   return item;
 }
 
@@ -178,10 +179,11 @@ export function renderSeekingAlphaPush(items = []) {
   };
   const cards = list.map((x, i) => {
     const bb = normalizeProbability(x.bullBear) ? x.bullBear : null;
+    const tag = bb ? sentimentLabel(bb) : '';
     const ls = bb ? `
         <div style="margin-top:6px;padding:6px 7.5px;background:#031203;border:1px solid #0d9b4c;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:4.5px;font-family:'Courier New',Consolas,monospace;font-size:7px;flex-wrap:wrap;">
-            <span style="background:#00ff66;color:#041404;padding:0.75px 3.75px;font-weight:700;letter-spacing:0.5px;">AI 多空概率</span>
+            <span style="background:#00ff66;color:#041404;padding:0.75px 3.75px;font-weight:700;letter-spacing:0.5px;">AI 多空概率 · ${esc(tag)}</span>
             <span style="background:#041404;color:#b8f2cb;padding:0.75px 3.75px;font-weight:700;">多 ${bb.bull}% / 空 ${bb.bear}%</span>
           </div>
           <div style="margin-top:4.5px;font-family:'Courier New',Consolas,monospace;font-size:8.5px;color:#b8f2cb;font-weight:700;line-height:1.7;word-break:break-all;">多 ${lsBarPush(bb.bull)} ${bb.bull}% ｜ 空 ${lsBarPush(bb.bear)} ${bb.bear}%</div>

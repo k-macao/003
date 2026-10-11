@@ -7,18 +7,29 @@ import {
   evaluateFreshness, isFreshItem
 } from '../freshness.mjs';
 import {
-  ruleLongShort, normalizeProbability, probabilityLabel, bullBearBar, aggregateLongShort, probabilitySourceText
+  ruleLongShort, normalizeProbability, probabilityLabel, bullBearBar, aggregateLongShort, probabilitySourceText,
+  SENTIMENT_LABELS, parseViewCount, computeTrafficWeight, sentimentLabel,
+  evaluateSentimentBandStrategy, analyzeQuantWorkflow
 } from '../longshort.mjs';
-import { analyzeLongShort, renderSummaryHtml } from '../ai.mjs';
+import { analyzeLongShort, renderSummaryHtml, summarize } from '../ai.mjs';
+import { filterSensitiveHtml } from '../sensitive-filter.mjs';
 import {
   parseSeekingAlphaList, parseSAPublished, normalizeSAItem,
   renderSeekingAlphaPush, buildDemoSeekingAlpha, SA_CHANNEL
 } from '../seekingalpha.mjs';
 
 let passed = 0;
+const pending = [];
 const t = (name, fn) => {
-  try { fn(); passed++; console.log(`  ✓ ${name}`); }
-  catch (e) { console.error(`  ✗ ${name}\n    ${e.message}`); process.exitCode = 1; }
+  try {
+    const r = fn();
+    if (r && typeof r.then === 'function') {
+      pending.push(r.then(() => { passed++; console.log(`  ✓ ${name}`); }).catch(e => { console.error(`  ✗ ${name}\n    ${e.message}`); process.exitCode = 1; }));
+    } else {
+      passed++;
+      console.log(`  ✓ ${name}`);
+    }
+  } catch (e) { console.error(`  ✗ ${name}\n    ${e.message}`); process.exitCode = 1; }
 };
 
 console.log('· 时效验证（最近 72 小时）');
@@ -201,5 +212,59 @@ t('SA 推送块：五档色深 + 空列表不输出', () => {
   assert.match(html, /color:#63b47f/);   // 说明（英文原题 / 来源标注）
 });
 
-await Promise.resolve();
+console.log('· 可量化的分析工作流（四步量化情绪分析 + 推送开头 AI 总结概括）');
+t('四步工作流：1.解析观看量/粉丝量 + 2.五档情绪打标 + 3.流量加权情绪指数 + 4.上下轨策略', () => {
+  assert.deepEqual(SENTIMENT_LABELS, ['极度乐观', '谨慎乐观', '中性观察', '谨慎悲观', '极度恐慌']);
+  assert.equal(parseViewCount('4.8万次观看'), 48000);
+  assert.equal(parseViewCount('120K views'), 120000);
+  assert.equal(parseViewCount('32万粉丝'), 320000);
+
+  // 五档情绪分类验证
+  assert.equal(sentimentLabel(78), '极度乐观');
+  assert.equal(sentimentLabel(64), '谨慎乐观');
+  assert.equal(sentimentLabel(50), '中性观察');
+  assert.equal(sentimentLabel(38), '谨慎悲观');
+  assert.equal(sentimentLabel(20), '极度恐慌');
+
+  // 观看量越高的视频赋予越大权重
+  const lowViewItem = { title: '大盘走势平稳震荡', viewsText: '1,200次观看', subscribersText: '1万粉丝', bullBear: { bull: 35, bear: 65 } };
+  const highViewItem = { title: '港股美股大涨突破创新高 牛市启动', viewsText: '50万次观看', subscribersText: '80万粉丝', bullBear: { bull: 82, bear: 18 } };
+  assert.ok(computeTrafficWeight(highViewItem).weight > computeTrafficWeight(lowViewItem).weight);
+
+  const quant = analyzeQuantWorkflow([lowViewItem, highViewItem]);
+  assert.ok(quant.sentimentIndex.index > 60, `观看量高的看多视频应拉高加权情绪指数: ${quant.sentimentIndex.index}`);
+  assert.equal(quant.collection.totalItems, 2);
+  assert.equal(quant.curveAndStrategy.upperBand, 75);
+  assert.equal(quant.curveAndStrategy.lowerBand, 25);
+
+  // 上下轨对照大盘走势策略：极度恐慌左侧买点 vs 极度贪婪分批止盈
+  const panicStrat = evaluateSentimentBandStrategy(20);
+  assert.match(panicStrat.strategyAction, /左侧买点/);
+  const greedStrat = evaluateSentimentBandStrategy(82);
+  assert.match(greedStrat.strategyAction, /分批止盈/);
+});
+t('推送开头 AI 总结概括：包含四步可量化工作流且通过敏感词过滤无 xxx 误杀', async () => {
+  const savedKey = process.env.DEEPSEEK_API_KEY;
+  delete process.env.DEEPSEEK_API_KEY;
+  const sampleItems = [
+    { channel: '信報財經新聞', title: '大盘走势：港股午後跌幅收窄 恒指重上18000點 內房板塊反彈', viewsText: '4.8万次观看', subscribersText: '32万粉丝', published: '3 小时前', bullBear: ruleLongShort({ title: '港股午後跌幅收窄 恒指重上18000點 內房板塊反彈', transcript: '反弹 回暖' }) },
+    { channel: 'Bloomberg Television', title: '股票分析：港股/美股科技股領漲 標普500創新高', viewsText: '9.5万次观看', subscribersText: '120万粉丝', published: '2 小时前', bullBear: ruleLongShort({ title: '科技股領漲 標普500創新高 突破 大涨', transcript: '突破 创新高 领涨' }) }
+  ];
+  const summary = await summarize(sampleItems);
+  if (savedKey) process.env.DEEPSEEK_API_KEY = savedKey;
+  assert.ok(summary && summary.main.includes('可量化情绪分析工作流'));
+  const html = renderSummaryHtml(summary, { itemCount: sampleItems.length, items: sampleItems });
+  assert.match(html, /C:\\AI\\SUMMARY\.EXE/);
+  assert.match(html, /QUANT_WORKFLOW\.DAT/);
+  assert.match(html, /1\. 数据采集（采集标题）/);
+  assert.match(html, /2\. 文本与情绪打标/);
+  assert.match(html, /3\. 加权计算“情绪指数”/);
+  assert.match(html, /4\. 绘制情绪曲线对照股价/);
+  assert.match(html, /情绪极度恐慌时寻找左侧买点，情绪极度贪婪时考虑分批止盈/);
+  const filtered = filterSensitiveHtml(html, { collectMatches: true });
+  const zhHits = filtered.matches.filter(m => /[\u4e00-\u9fff]/.test(m.keyword));
+  assert.equal(zhHits.length, 0, `工作流中文文案不应命中敏感词: ${JSON.stringify(zhHits)}`);
+});
+
+await Promise.all(pending);
 console.log(`\n${passed} 项自测通过${process.exitCode ? '（存在失败项）' : ' ✅'}`);

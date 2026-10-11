@@ -5,7 +5,10 @@ import { readFile } from 'node:fs/promises';
 import { URL } from 'node:url';
 import { summarize, renderSummaryHtml, analyzeLongShort } from './ai.mjs';
 import { FRESH_WINDOW_LABEL, formatMacau, evaluateFreshness } from './freshness.mjs';
-import { aggregateLongShort, normalizeProbability, ruleLongShort } from './longshort.mjs';
+import {
+  aggregateLongShort, normalizeProbability, ruleLongShort,
+  parseViewCount, sentimentLabel, analyzeQuantWorkflow
+} from './longshort.mjs';
 import {
   SA_CHANNEL, SA_URL, parseSeekingAlphaList, parseSAPublished,
   normalizeSAItem, renderSeekingAlphaPush, buildDemoSeekingAlpha
@@ -75,14 +78,19 @@ function buildSearchQueries(name) {
   variants.push(`${base} 最新 财经`);
   // 方向2：纯名称（解决：带后缀时 YouTube 搜不到）
   variants.push(base);
-  // 方向3：去除常见后缀后的核心词（例如 “香港經濟日報 HKET” -> “香港經濟日報”）
+  // 方向3：斜杠分隔关键词拆解（例如 “港股/美股” -> “港股 美股”）
+  if (base.includes('/')) {
+    const slashJoined = base.split('/').map(s => s.trim()).filter(Boolean).join(' ');
+    if (slashJoined && slashJoined !== base) variants.push(slashJoined);
+  }
+  // 方向4：去除常见后缀后的核心词（例如 “香港經濟日報 HKET” -> “香港經濟日報”）
   const stripped = base.replace(/\s*(HKET|HKBT|中文网|中文).*$/i, '').trim();
   if (stripped && stripped !== base) variants.push(stripped);
-  // 方向4：名称 + “财经” （扩大召回）
+  // 方向5：名称 + “财经” （扩大召回）
   variants.push(`${base} 财经`);
-  // 方向5：名称 + “官方 频道”（针对机构类频道）
+  // 方向6：名称 + “官方 频道”（针对机构类频道）
   variants.push(`${base} 官方`);
-  // 方向6：仅首段（针对含 “|”“·” 等分隔的复合名）
+  // 方向7：仅首段（针对含 “|”“·” 等分隔的复合名）
   const firstToken = base.split(/[\|\-·\/\s]+/)[0].trim();
   if (firstToken && firstToken.length >= 2 && firstToken !== base) variants.push(firstToken);
   // 去重并限 5 个方向（控制总耗时）
@@ -106,24 +114,52 @@ function pickPublishedTime(block) {
   const m = block.match(/"publishedTimeText":\{"simpleText":"([^"]+)"/);
   return m ? m[1] : '';
 }
+function pickViewCountText(block) {
+  const m = block.match(/"viewCountText":\{"simpleText":"([^"]+)"/)
+    || block.match(/"viewCountText":\{"runs":\[\{"text":"([^"]+)"\}(?:,\{"text":"([^"]*)"\})?\]/)
+    || block.match(/"shortViewCountText":\{"simpleText":"([^"]+)"/)
+    || block.match(/"shortViewCountText":\{[\s\S]{0,200}?"label":"([^"]+)"/);
+  if (!m) return '';
+  return m[2] ? `${m[1]}${m[2]}` : m[1];
+}
+function pickSubscriberCountText(block) {
+  const m = block.match(/"subscriberCountText":\{"simpleText":"([^"]+)"/)
+    || block.match(/"subscriberCountText":\{[\s\S]{0,200}?"label":"([^"]+)"/);
+  return m ? m[1] : '';
+}
 
 function parseVideosWithStrategies(html) {
   const found = [];
   const seen = new Set();
-  const push = (id, title, published, from) => {
+  const push = (id, title, published, from, block = '') => {
     if (!id || seen.has(id)) return;
     if (!/^[\w-]{11}$/.test(id)) return;
     seen.add(id);
+    const viewsText = block ? clean(decode(pickViewCountText(block))) : '';
+    const subscribersText = block ? clean(decode(pickSubscriberCountText(block))) : '';
+    const views = parseViewCount(viewsText);
+    const subscribers = parseViewCount(subscribersText);
     // 发布时间未知时留空（不再默认“刚刚”），由 scan() 逐条做 72 小时时效验证
-    found.push({ id, title: clean(decode(title || '未知标题')), published: clean(decode(published || '')), url: 'https://www.youtube.com/watch?v=' + id, _from: from });
+    found.push({
+      id,
+      title: clean(decode(title || '未知标题')),
+      published: clean(decode(published || '')),
+      ...(viewsText ? { viewsText } : {}),
+      ...(views != null ? { views } : {}),
+      ...(subscribersText ? { subscribersText } : {}),
+      ...(subscribers != null ? { subscribers } : {}),
+      url: 'https://www.youtube.com/watch?v=' + id,
+      _from: from
+    });
   };
 
   // 策略1：原精确结构 title.runs.text（最常见）
   try {
     const rx = /"videoId":"([\w-]{11})"[\s\S]{0,1800}?"title":\{"runs":\[\{"text":"([\s\S]*?)"\}/g;
     let m; while ((m = rx.exec(html)) && found.length < MAX_CANDIDATES) {
-      const pub = pickPublishedTime(videoBlockOf(html, m.index));
-      push(m[1], m[2], pub, 's1-runs');
+      const blk = videoBlockOf(html, m.index);
+      const pub = pickPublishedTime(blk);
+      push(m[1], m[2], pub, 's1-runs', blk);
     }
   } catch {}
 
@@ -135,8 +171,9 @@ function parseVideosWithStrategies(html) {
         if (m[2].length < 2) continue;
         // 过滤明显非视频的导航文本
         if (/^(首页|Shorts|直播|频道|播放列表)/.test(m[2])) continue;
-        const pub = pickPublishedTime(videoBlockOf(html, m.index));
-        push(m[1], m[2], pub, 's2-simpleText');
+        const blk = videoBlockOf(html, m.index);
+        const pub = pickPublishedTime(blk);
+        push(m[1], m[2], pub, 's2-simpleText', blk);
       }
     } catch {}
   }
@@ -153,8 +190,9 @@ function parseVideosWithStrategies(html) {
         if (!tm) tm = slice.match(/"text":"([^"]+)"/);
         if (!tm) continue;
         if (tm[1].length < 2) continue;
-        const pub = pickPublishedTime(videoBlockOf(html, m.index));
-        push(m[1], tm[1], pub, 's3-generic');
+        const blk = videoBlockOf(html, m.index);
+        const pub = pickPublishedTime(blk);
+        push(m[1], tm[1], pub, 's3-generic', blk);
       }
     } catch {}
   }
@@ -327,17 +365,27 @@ function buildDemoItems() {
     };
   };
   const candidates = [
-    mk({ id: 'demo0000001', hoursAgo: 3, channel: '信報財經新聞', published: '3 小时前', title: '港股午後跌幅收窄 恒指重上18000點 內房板塊反彈',
+    mk({ id: 'demo0000001', hoursAgo: 3, channel: '信報財經新聞', published: '3 小时前',
+      views: 48000, viewsText: '4.8万次观看', subscribers: 320000, subscribersText: '32万粉丝',
+      title: '港股午後跌幅收窄 恒指重上18000點 內房板塊反彈',
       transcript: '00:00 開場\n大家好，今日大市焦點係恒指重返萬八關。\n03:12 內房股集體反彈，碧桂園升幅領先。',
-      status: '字幕已读取', bullBear: { bull: 64, bear: 36, note: '偏多：反弹 / 內房 / 恒指', source: 'ai' } }),
-    mk({ id: 'demo0000002', hoursAgo: 11, channel: '美投说美股', published: '11 小时前', title: '美聯儲議息紀錄顯示官員分歧擴大 市場押注年內路徑',
-      transcript: '', status: '仅供参考，不做推荐', bullBear: { bull: 47, bear: 53, note: '中性：利率路径分歧', source: 'ai' } }),
-    mk({ id: 'demo0000003', hoursAgo: 40, channel: 'CNBC', published: '2 天前', title: 'Stocks rally as inflation data cools 美股通胀数据降温带动反弹',
-      transcript: '', status: '仅供参考，不做推荐', bullBear: { bull: 68, bear: 32, note: '偏多：通胀降温 / 反弹', source: 'rule' } }),
-    mk({ id: 'demo0000004', hoursAgo: 100, channel: 'Bloomberg', published: '4 天前', title: '旧闻：四天前的市场综述（应被隐藏）',
-      transcript: '旧内容', status: '字幕已读取', bullBear: { bull: 50, bear: 50, note: '中性', source: 'rule' } }),
-    mk({ id: 'demo0000005', hoursAgo: 200, channel: 'Reuters', published: '1 周前', title: '旧闻：一周前的市场综述（应被隐藏）',
-      transcript: '旧内容', status: '字幕已读取', bullBear: { bull: 50, bear: 50, note: '中性', source: 'rule' } })
+      status: '字幕已读取', bullBear: { bull: 64, bear: 36, sentiment: '谨慎乐观', note: '偏多：反弹 / 內房 / 恒指', source: 'ai' } }),
+    mk({ id: 'demo0000002', hoursAgo: 11, channel: '美投说美股', published: '11 小时前',
+      views: 85000, viewsText: '8.5万次观看', subscribers: 680000, subscribersText: '68万粉丝',
+      title: '美聯儲議息紀錄顯示官員分歧擴大 市場押注年內路徑',
+      transcript: '', status: '仅供参考，不做推荐', bullBear: { bull: 47, bear: 53, sentiment: '中性观察', note: '中性：利率路径分歧', source: 'ai' } }),
+    mk({ id: 'demo0000003', hoursAgo: 40, channel: 'CNBC', published: '2 天前',
+      views: 120000, viewsText: '12万次观看', subscribers: 1500000, subscribersText: '150万粉丝',
+      title: 'Stocks rally as inflation data cools 美股通胀数据降温带动反弹',
+      transcript: '', status: '仅供参考，不做推荐', bullBear: { bull: 68, bear: 32, sentiment: '谨慎乐观', note: '偏多：通胀降温 / 反弹', source: 'rule' } }),
+    mk({ id: 'demo0000004', hoursAgo: 100, channel: 'Bloomberg', published: '4 天前',
+      views: 25000, viewsText: '2.5万次观看',
+      title: '旧闻：四天前的市场综述（应被隐藏）',
+      transcript: '旧内容', status: '字幕已读取', bullBear: { bull: 50, bear: 50, sentiment: '中性观察', note: '中性', source: 'rule' } }),
+    mk({ id: 'demo0000005', hoursAgo: 200, channel: 'Reuters', published: '1 周前',
+      views: 18000, viewsText: '1.8万次观看',
+      title: '旧闻：一周前的市场综述（应被隐藏）',
+      transcript: '旧内容', status: '字幕已读取', bullBear: { bull: 50, bear: 50, sentiment: '中性观察', note: '中性', source: 'rule' } })
   ];
   const items = [], hidden = [];
   for (const x of candidates) {
@@ -345,7 +393,8 @@ function buildDemoItems() {
     if (fresh.ok) items.push(x);
     else hidden.push({ channel: x.channel, title: x.title, url: x.url, reason: fresh.reason || `超出 ${FRESH_WINDOW_LABEL}窗口` });
   }
-  return { items, hidden };
+  const quant = analyzeQuantWorkflow(items);
+  return { items, hidden, quant };
 }
 
 // ===================== 新栏目：Seeking Alpha 最新分析 =====================
@@ -431,8 +480,18 @@ async function scanSeekingAlpha(limit = 12) {
     const probs = await analyzeLongShort(items, { onLog: m => console.log(m) });
     items.forEach((item, i) => {
       const p = probs[i];
-      if (p && normalizeProbability(p)) item.bullBear = { bull: p.bull, bear: p.bear, note: p.note || '', source: p.source || 'rule' };
+      if (p && normalizeProbability(p)) {
+        item.bullBear = {
+          bull: p.bull,
+          bear: p.bear,
+          sentiment: p.sentiment || sentimentLabel(p.bull),
+          ...(p.weightPct != null ? { weightPct: p.weightPct } : {}),
+          note: p.note || '',
+          source: p.source || 'rule'
+        };
+      }
     });
+    analyzeQuantWorkflow(items);
   } catch (e) { console.log('[sa] 多空概率异常（保留本地规则兜底）：', e.message); }
   if (hidden.length) console.log(`[sa] 隐藏 ${hidden.length} 条超出 ${FRESH_WINDOW_LABEL}窗口/无法验证的内容`);
   return { items, hidden, via };
@@ -513,25 +572,35 @@ async function scan(names, limit = 50) {
   // 频道间礼貌间隔，降低限流概率
   if (names.length > 1) await new Promise(r => setTimeout(r, 180));
  }
- // ===================== AI 多空概率（逐条） =====================
- // 每条内容都带「AI 多空概率」：优先由大模型依据标题 + 字幕推算；
- // 无 Key / 调用失败 / 单条缺失时降级为本地规则推算，并在界面上明确标注来源。
+ // ===================== AI 多空概率与五档情绪打标（逐条） =====================
+ // 每条内容都带「AI 多空概率 + 五档情绪标签」：优先由大模型依据标题 + 字幕推算；
+ // 无 Key / 调用失败 / 单条缺失时降级为本地规则推算，并按流量计算情绪权重。
  try {
   const probs = await analyzeLongShort(results.filter(x => !x.error), { onLog: m => console.log(m) });
   let k = 0;
   for (const item of results) {
    if (item.error) continue;
    const p = probs[k++] || null;
-   if (p && normalizeProbability(p)) item.bullBear = { bull: p.bull, bear: p.bear, note: p.note || '', source: p.source || 'rule' };
+   if (p && normalizeProbability(p)) {
+    item.bullBear = {
+     bull: p.bull,
+     bear: p.bear,
+     sentiment: p.sentiment || sentimentLabel(p.bull),
+     ...(p.weightPct != null ? { weightPct: p.weightPct } : {}),
+     note: p.note || '',
+     source: p.source || 'rule'
+    };
+   }
   }
+  analyzeQuantWorkflow(results.filter(x => !x.error));
  } catch (e) { console.log('[ai-ls] 多空概率异常（忽略，不影响扫描）：', e.message); }
  if (stale.length) console.log(`[fresh] 本次共隐藏 ${stale.length} 条超出 ${FRESH_WINDOW_LABEL}窗口/无法验证发布时间的内容`);
  return { items: results, hidden: stale };
 }
 
 /**
- * 给扫描结果做 AI 主题聚类总结（DeepSeek），并返回一段 HTML 片段，
- * 供 pushWechat 插到内容顶部。失败一律返回空字符串（降级到原始推送）。
+ * 给扫描结果做 AI 量化工作流总结（DeepSeek / 本地四步可量化工作流降级），并返回一段 HTML 片段，
+ * 供 pushWechat 插到推送开头。
  */
 async function buildSummaryHtml(items) {
   try {
@@ -540,6 +609,8 @@ async function buildSummaryHtml(items) {
     return renderSummaryHtml(summary, {
       generatedAt: new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Macau' }),
       itemCount: items.length,
+      quant: summary.quant || analyzeQuantWorkflow(items),
+      items,
       // 全景多空概率：由各条内容的 AI 多空概率汇总（见 longshort.mjs aggregateLongShort）
       longShort: aggregateLongShort(items)
     });
@@ -782,6 +853,7 @@ const server = http.createServer(async (req,res) => {
    const hidden = out.hidden || [];
    json(res,200,{
      items: out.items,
+     quant: out.quant || analyzeQuantWorkflow(out.items),
      hiddenCount: hidden.length,
      hidden: hidden.slice(0, 20), // 统计与排查用，最多回传 20 条
      freshWindow: FRESH_WINDOW_LABEL,
@@ -794,6 +866,7 @@ const server = http.createServer(async (req,res) => {
   const demo = buildDemoItems();
   return json(res, 200, {
     items: demo.items,
+    quant: demo.quant,
     hiddenCount: demo.hidden.length,
     hidden: demo.hidden,
     freshWindow: FRESH_WINDOW_LABEL,
@@ -845,9 +918,10 @@ const server = http.createServer(async (req,res) => {
     const body = await new Promise((ok,bad)=>{let s='';req.on('data',x=>s+=x);req.on('end',()=>{try{ok(JSON.parse(s||'{}'))}catch(e){bad(e)}})});
     const items = Array.isArray(body.items) ? body.items : [];
     if (!items.length) return json(res, 400, { error: '缺少 items' });
+    const quant = analyzeQuantWorkflow(items.filter(x => x && !x.error));
     const summaryHtml = await buildSummaryHtml(items);
-    if (!summaryHtml) return json(res, 200, { ok: false, summaryHtml: '', reason: 'AI 总结不可用（未配置 key / 调用失败 / 解析失败），已降级为无总结推送' });
-    return json(res, 200, { ok: true, summaryHtml });
+    if (!summaryHtml) return json(res, 200, { ok: false, summaryHtml: '', quant, reason: 'AI 总结不可用（未配置 key / 调用失败 / 解析失败），已降级为无总结推送' });
+    return json(res, 200, { ok: true, summaryHtml, quant });
   } catch (e) { json(res, 500, { error: e.message }); }
   return;
  }
