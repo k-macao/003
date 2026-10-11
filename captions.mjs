@@ -1,5 +1,9 @@
 // YouTube 字幕读取：保留签名轨道 URL / 自动字幕参数，返回可解释的结果。
 // 不下载视频，不执行 OCR/语音识别；空结果不等同于“视频没有文字”。
+
+/** 未读到字幕正文时的状态文案（网页 / 微信推送的状态徽章共用）；读取失败原因见 code / message 诊断。 */
+export const NO_CAPTION_STATUS = '仅供参考，不做推荐';
+
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0',
   'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.6'
@@ -78,7 +82,7 @@ export async function readCaptions(id, { fetchImpl = globalThis.fetch, timeoutMs
   const attempts = [];
   const deadline = Date.now() + budgetMs;
   const empty = code => ({ text: '', source: 'none', language: '', translated: false,
-    status: '未读取到字幕（仅标题）', code, message: captionMessage(code), attempts });
+    status: NO_CAPTION_STATUS, code, message: captionMessage(code), attempts });
   if (!/^[\w-]{11}$/.test(id)) return empty('invalid_id');
 
   async function request(url, stage) {

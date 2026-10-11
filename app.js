@@ -7,11 +7,29 @@ let demoInProgress = false;
 let pushInProgress = false;
 let lastIsDemo = false;
 let serverWechatConfigured = false;
-// 只取得是否配置的布尔值；绝不向浏览器返回服务端 Token。
+let serverTopicConfigured = false;
+// 只取得是否配置的布尔值；绝不向浏览器返回服务端 Token / 群组编码。
 const pushConfigReady = fetch('/api/push-config', { signal: AbortSignal.timeout(5000) })
   .then(r => r.ok ? r.json() : {})
-  .then(d => { serverWechatConfigured = d.wechatConfigured === true; })
-  .catch(() => {});
+  .then(d => {
+    serverWechatConfigured = d.wechatConfigured === true;
+    serverTopicConfigured = d.topicConfigured === true;
+  })
+  .catch(() => {})
+  .finally(() => updatePushMode());
+
+// PushPlus 一对多：带群组编码（topic）时发送给群组全部订阅人；
+// 网页未填写且服务端未配置 PUSHPLUS_TOPIC 时退回一对一（仅发给 Token 本人），并在 MODE 中如实标注。
+function pushTarget() {
+  const topic = (document.querySelector('#topic')?.value || '').trim();
+  if (topic) return { topic, oneToMany: true, label: `一对多 · 群组 ${topic}` };
+  if (serverTopicConfigured) return { topic: '', oneToMany: true, label: '一对多 · 服务端群组' };
+  return { topic: '', oneToMany: false, label: '一对一 · 仅自己' };
+}
+function updatePushMode() {
+  const el = document.querySelector('#pushMode');
+  if (el) el.textContent = pushTarget().label;
+}
 
 const box = document.querySelector('#channels');
 box.innerHTML = sourceNames.map(n => `<label class="channel"><input type="checkbox" value="${n}" checked> <span>${n}</span></label>`).join('');
@@ -76,6 +94,7 @@ function lsHtml(x) {
 }
 
 function updatePushMeta() {
+  updatePushMode();
   const packetItems = freshOnly(last);
   const pc = document.querySelector('#packetCount');
   if (pc) pc.textContent = packetItems.length;
@@ -180,6 +199,19 @@ if (tokenInput) {
       light.style.background = '#0a5c2c';   /* 熄灭态与 CSS --border-light 一致，不用灰色 */
       light.style.boxShadow = 'none';
     }
+  });
+}
+
+const topicInput = document.querySelector('#topic');
+if (topicInput) {
+  topicInput.addEventListener('input', () => {
+    const light = document.querySelector('#topic-light');
+    if (light) {
+      const on = topicInput.value.trim().length > 0;
+      light.style.background = on ? '#00ff66' : '#0a5c2c';
+      light.style.boxShadow = on ? '0 0 6px #00ff66' : 'none';
+    }
+    updatePushMode();
   });
 }
 
@@ -564,13 +596,15 @@ async function pushCurrentReport({ automatic = false } = {}) {
       if (saRes.ok && saD && saD.ok && !saD.demo && saD.html) saHtml = saD.html;
     } catch (_) { /* 降级：无 SA 栏目 */ }
     const content = (summaryHtml + saHtml) ? (summaryHtml + saHtml + baseContent) : baseContent;
+    const target = pushTarget();
     setState('推送中…');
-    setPushStatus('PUSHING → WECHAT');
+    setPushStatus(target.oneToMany ? 'PUSHING → WECHAT 一对多' : 'PUSHING → WECHAT');
     const r = await fetch('/api/push', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         token,
+        topic: target.topic, // 一对多群组编码；留空时服务端使用 PUSHPLUS_TOPIC，仍为空则一对一
         title: '章鱼 AI 全景分析',
         content,
         template: 'html',
@@ -580,12 +614,15 @@ async function pushCurrentReport({ automatic = false } = {}) {
     const d = await r.json();
     if (!r.ok || !d.ok) throw Error(d.msg || d.error || ('HTTP ' + r.status));
     const sent = d.sentParts || 1, total = d.totalParts || 1;
-    if (!automatic) alert(`✅ 推送成功！\n已推送到微信（PushPlus）—— DOS 复古终端全景简报已发送！\n${summaryHtml ? '🧠 已附加 AI 主题聚类总结\n' : ''}${saHtml ? '🌐 已附加 SEEKING ALPHA 最新分析栏目\n' : ''}发送 ${sent}/${total} 条` + (total > 1 ? `（超过限制自动分条发送）` : '') + (d.data ? `\n首条流水号：` + d.data : '') + `\n\n— 章鱼 AI 全景分析 —`);
-    setState('已推送微信 · ' + sent + '/' + total);
-    setPushStatus('PUSHED ' + sent + '/' + total);
+    // 以服务端实际发送模式为准（群组编码可能来自服务端环境变量）
+    const oneToMany = d.mode ? d.mode === 'one-to-many' : target.oneToMany;
+    const modeText = oneToMany ? '一对多 · 群组全部订阅人' : '一对一 · 仅自己';
+    if (!automatic) alert(`✅ 推送成功！\n已推送到微信（PushPlus · ${modeText}）—— DOS 复古终端全景简报已发送！\n${summaryHtml ? '🧠 已附加 AI 主题聚类总结\n' : ''}${saHtml ? '🌐 已附加 SEEKING ALPHA 最新分析栏目\n' : ''}发送 ${sent}/${total} 条` + (total > 1 ? `（超过限制自动分条发送）` : '') + (d.data ? `\n首条流水号：` + d.data : '') + `\n\n— 章鱼 AI 全景分析 —`);
+    setState('已推送微信 · ' + modeText + ' · ' + sent + '/' + total);
+    setPushStatus('PUSHED ' + sent + '/' + total + ' · ' + (oneToMany ? '一对多' : '一对一'));
   } catch (e) {
     setState('微信推送失败 · 可手动重试');
-    notify('推送失败：' + e.message + '\n\n排查提示：\n1. Token 是否正确且已实名认证（2024-08-01 起需实名）\n2. 检查网络连接或 PushPlus 频率限制');
+    notify('推送失败：' + e.message + '\n\n排查提示：\n1. Token 是否正确且已实名认证（2024-08-01 起需实名）\n2. 一对多：群组编码是否正确（须为该 Token 创建的群组）\n3. 检查网络连接或 PushPlus 频率限制');
     setPushStatus('微信推送失败 · ' + e.message);
   } finally {
     pushInProgress = false;

@@ -10,7 +10,7 @@ const item = () => ({ channel: 'Test', title: '市场新闻', url: 'https://exam
 
 // Run the real browser event handlers with a minimal DOM and isolated network.
 // Never contact PushPlus or use real tokens in tests.
-function harness({ token = '', configured = false, auto = true, items = [item()], pushFails = false, scanFails = false, holdPush } = {}) {
+function harness({ token = '', topic = '', configured = false, topicConfigured = false, auto = true, items = [item()], pushFails = false, scanFails = false, holdPush } = {}) {
   const nodes = new Map();
   const selected = [{ value: 'Test', checked: true }];
   const node = selector => {
@@ -21,6 +21,7 @@ function harness({ token = '', configured = false, auto = true, items = [item()]
     return nodes.get(selector);
   };
   node('#token').value = token;
+  node('#topic').value = topic;
   node('#auto-push-wechat').checked = auto;
   const calls = [], alerts = [];
   const context = vm.createContext({
@@ -30,7 +31,7 @@ function harness({ token = '', configured = false, auto = true, items = [item()]
     fetch: async (url, options) => {
       calls.push({ url, body: options?.body ? JSON.parse(options.body) : null });
       let data = {};
-      if (url === '/api/push-config') data = { wechatConfigured: configured };
+      if (url === '/api/push-config') data = { wechatConfigured: configured, topicConfigured };
       else if (url === '/api/scan') {
         if (scanFails) throw new Error('scan offline');
         data = { items, hiddenCount: 0 };
@@ -39,7 +40,9 @@ function harness({ token = '', configured = false, auto = true, items = [item()]
       else if (url.startsWith('/api/seekingalpha')) data = { ok: true, items: [], html: '' };
       else if (url === '/api/push') {
         if (holdPush) await holdPush;
-        data = pushFails ? { ok: false, msg: 'send rejected' } : { ok: true, sentParts: 1, totalParts: 1 };
+        // 模拟服务端：请求体带群组编码或服务端已配置 PUSHPLUS_TOPIC → 一对多
+        const mode = calls.at(-1).body.topic || topicConfigured ? 'one-to-many' : 'one-to-one';
+        data = pushFails ? { ok: false, msg: 'send rejected' } : { ok: true, sentParts: 1, totalParts: 1, mode };
       } else throw new Error('Unexpected URL ' + url);
       return { ok: true, json: async () => data };
     }
@@ -138,6 +141,45 @@ test('发送中禁止重复推送和新扫描', async () => {
   assert.equal(h.pushes().length, 1);
   release();
   await first;
+});
+
+test('一对多：填写群组编码后推送请求携带 topic，MODE 显示一对多', async () => {
+  assert.match(index, /<input id="topic"[^>]*type="text"/);
+  assert.match(index, /id="pushMode"/);
+  const h = harness({ token: 'test-only', topic: ' team-brief ' });
+  await h.node('#scan').onclick();
+  assert.equal(h.pushes().length, 1);
+  assert.equal(h.pushes()[0].body.topic, 'team-brief');
+  assert.equal(h.pushes()[0].body.channel, 'wechat');
+  assert.match(h.node('#pushMode').textContent, /一对多 · 群组 team-brief/);
+  assert.match(h.node('#pushStatus').textContent, /PUSHED 1\/1 · 一对多/);
+});
+
+test('一对多：网页留空时交给服务端 PUSHPLUS_TOPIC，浏览器拿不到群组编码', async () => {
+  const h = harness({ configured: true, topicConfigured: true });
+  await h.node('#scan').onclick();
+  assert.equal(h.pushes().length, 1);
+  assert.equal(h.pushes()[0].body.topic, '');
+  assert.match(h.node('#pushMode').textContent, /一对多 · 服务端群组/);
+  assert.match(h.node('#pushStatus').textContent, /一对多/);
+});
+
+test('未配置群组编码时退回一对一，并如实标注', async () => {
+  const h = harness({ token: 'test-only' });
+  await h.node('#scan').onclick();
+  assert.equal(h.pushes().length, 1);
+  assert.equal(h.pushes()[0].body.topic, '');
+  assert.match(h.node('#pushMode').textContent, /一对一 · 仅自己/);
+  assert.match(h.node('#pushStatus').textContent, /PUSHED 1\/1 · 一对一/);
+});
+
+test('工作流手动与定时推送都带一对多 topic，镜像一致', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/oai.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /pushplus_topic:\s+description:[^\n]+\s+required: false\s+default: ''/);
+  assert.match(workflow, /PUSHPLUS_TOPIC: \$\{\{ inputs\.pushplus_topic != '' && inputs\.pushplus_topic \|\| secrets\.PUSHPLUS_TOPIC \}\}/);
+  assert.match(workflow, /PUSHPLUS_TOPIC: \$\{\{ secrets\.PUSHPLUS_TOPIC \}\}/);
+  assert.equal(workflow.match(/channel: 'wechat', \.\.\.\(topic \? \{ topic \} : \{\}\) \}\);/g)?.length, 2);
+  assert.equal(workflow, await readFile(new URL('../ci.yml.new', import.meta.url), 'utf8'));
 });
 
 test('网页字号、行距、卡片留白均已收紧', async () => {

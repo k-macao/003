@@ -31,6 +31,11 @@ on:
         required: false
         default: ''
         type: string
+      pushplus_topic:
+        description: 'PushPlus 一对多群组编码 topic（优先于 Secrets.PUSHPLUS_TOPIC；都为空时退回一对一，仅发给自己）'
+        required: false
+        default: ''
+        type: string
       enable_ai_summary:
         description: '推送前用 AI（DeepSeek）对视频字幕做主题聚类总结'
         required: false
@@ -113,6 +118,7 @@ jobs:
       - name: Scan and push to WeChat
         env:
           PUSHPLUS_TOKEN: ${{ inputs.pushplus_token != '' && inputs.pushplus_token || secrets.PUSHPLUS_TOKEN }}
+          PUSHPLUS_TOPIC: ${{ inputs.pushplus_topic != '' && inputs.pushplus_topic || secrets.PUSHPLUS_TOPIC }}
           CHANNELS_INPUT: ${{ inputs.channels }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           ENABLE_AI_SUMMARY: ${{ inputs.enable_ai_summary }}
@@ -363,11 +369,14 @@ jobs:
           fs.writeFileSync('chunks.json', JSON.stringify({header, footer, chunks, title}, null, 2));
 
           const token = process.env.PUSHPLUS_TOKEN;
+          // 一对多：带 topic（群组编码）发送给群组全部订阅人；未配置时退回一对一（仅发给 token 本人）
+          const topic = String(process.env.PUSHPLUS_TOPIC || '').trim();
+          console.log(topic ? '推送模式：一对多（已配置群组编码，发送给群组全部订阅人）' : '::warning::未配置 PUSHPLUS_TOPIC（群组编码），本次按一对一推送，仅发给 token 本人');
           let okCount=0;
           for(let i=0;i<chunks.length;i++){
             const partTitle = chunks.length>1 ? `${title} (${i+1}/${chunks.length})` : title;
             const partContent = (header||footer) ? `${header}${chunks[i]}${footer}` : chunks[i];
-            const payload = JSON.stringify({ token, title: partTitle, content: partContent, template: 'html', channel: 'wechat' });
+            const payload = JSON.stringify({ token, title: partTitle, content: partContent, template: 'html', channel: 'wechat', ...(topic ? { topic } : {}) });
             console.log(`推送 ${i+1}/${chunks.length}: ${partTitle} (${Buffer.byteLength(partContent,'utf8')} bytes)`);
             let r, text, data;
             try {
@@ -429,6 +438,7 @@ jobs:
       - name: Daily scan and push
         env:
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          PUSHPLUS_TOPIC: ${{ secrets.PUSHPLUS_TOPIC }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           if [ -z "$PUSHPLUS_TOKEN" ]; then
@@ -663,11 +673,14 @@ jobs:
             fs.writeFileSync('chunks.json', JSON.stringify({header, footer, chunks, title}, null, 2));
 
             const token = process.env.PUSHPLUS_TOKEN;
+            // 一对多：带 topic（群组编码）发送给群组全部订阅人；未配置时退回一对一（仅发给 token 本人）
+            const topic = String(process.env.PUSHPLUS_TOPIC || '').trim();
+            console.log(topic ? '推送模式：一对多（已配置群组编码，发送给群组全部订阅人）' : '::warning::未配置 PUSHPLUS_TOPIC（群组编码），本次按一对一推送，仅发给 token 本人');
             let okCount=0;
             for(let i=0;i<chunks.length;i++){
               const partTitle = chunks.length>1 ? `${title} (${i+1}/${chunks.length})` : title;
               const partContent = (header||footer) ? `${header}${chunks[i]}${footer}` : chunks[i];
-              const payload = JSON.stringify({ token, title: partTitle, content: partContent, template: 'html', channel: 'wechat' });
+              const payload = JSON.stringify({ token, title: partTitle, content: partContent, template: 'html', channel: 'wechat', ...(topic ? { topic } : {}) });
               console.log(`推送 ${i+1}/${chunks.length}: ${partTitle} (${Buffer.byteLength(partContent,'utf8')} bytes)`);
               let r, text, data;
               try {

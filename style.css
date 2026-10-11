@@ -606,6 +606,8 @@ main {
   line-height: 1.45;
 }
 .hint .t-note { color: var(--ink-note); }
+/* 一对多群组编码：与上方 Token 区块拉开一行间距 */
+.topic-field { margin-top: 7.5px; }
 
 .push-meta-bar {
   display: flex;
