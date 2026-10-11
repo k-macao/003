@@ -67,7 +67,7 @@ jobs:
         run: npm install
 
       - name: Check syntax and run self-test
-        # 自测覆盖：72 小时时效验证、AI 多空概率（含无 Key 时的规则降级）、总结块渲染
+        # 自测覆盖：每读取 10 条暂停 10 秒、72 小时时效验证、AI 多空概率、总结块渲染
         run: |
           npm test
           python3 -m unittest discover -s test -p 'test_*.py'
@@ -144,7 +144,7 @@ jobs:
           fi
           echo "Channels: $CHANNELS_JSON"
 
-          # 调用本地 /api/scan
+          # 调用本地 /api/scan（服务端每读取 10 条暂停 10 秒，分批/重试不重置计数）
           SCAN_RESP=$(curl -s --max-time 5400 -X POST http://localhost:3000/api/scan \
             -H 'Content-Type: application/json' \
             -d "{\"channels\": $CHANNELS_JSON}")
@@ -444,6 +444,7 @@ jobs:
           CHANNELS_JSON='["信報財經新聞","Finance730","香港經濟日報 HKET","香港財經時報 HKBT","新城財經台","香港金融管理局","游庭皓的財經皓角","柴鼠兄弟 ZRBros","风傳媒-下班经济學","老王愛說笑","自由女神邱沁宜","Better Leaf 好葉","慢活夫妻 George & Dewi","大俠武林","股乾爹 KuKanTieh","Gooaye股癌","理財不能等","懶錢包LazyWallet","M觀點","蕾咪Rami","財經 M 平方 MacroMicro","元大投顧財金頻道","股海老牛","财经风云","视野环球财经","阳光财经","ChineseFN 中文投資網","财经全世界","老李玩钱","土妹发财","贝拉说美股","美投说美股","艾爾文","寶可孟の省錢大作戰","吳淡如人生實用商學院","郭哲榮分析師","央视财经","Bloomberg中国","老徐价值投资","小Lin说","钱姐说钱","硅谷居士","财报狗","天下杂志","商业周刊","今周刊","非凡财经新闻","东森财经新闻","第一财经","FT中文网","观视频工作室","睡前消息","曲博科技教室","Now 財經 新聞","經濟一週 EDigest","RagaFinance財經台","阿豬 Ah Ju","溫鋼城投藝頻道","LION哥的投資世界","小翠時政財經","Tasty Money 港股直播室","熊麗萍Conita","財經拆局","住加財經 CanFin","富昌金融集團","郭Sir財經","全職炒家 RON LAU","陳sir港股美股分析@致富學院","樂在旅途財經人 連敬涵","粵語最財經","陽光財經粵語頻道","浮浪者 股市浪人","HKStockFinance","港樓x講事Channel","樓市專家 Ken Lui 呂宇健","Talk HK Property","SIU TING MAK","港股研究室","明報財經 MP Finance","灣區揭揭揭 - Tomson實錄","香港小電Callcall","OpenRice大灣區","大灣區夫婦 (Benny & Nicole)","TVB NEWS Official 無綫新聞","HOY 78 × 有線新聞 Cable News","香港01","RTHK 香港電台","香港電台公共事務組RTHK","星島頭條","明報 Mingpao","on.cc東網","am730","Sky Post晴報","商業電台 Hong Kong Toolbar","灼見名家 Master Insight","灼見名家保健養生","ISD, Hong Kong SAR Government 香港特區政府新聞處","香港新聞頻道","粵語新聞台","MPWeekly明周","星島娛樂","am娛樂","健康730","危險人物 Dangerous Person 2.0","午後檔案","BIGBIGAIR","UNWIRE.HK","Qooah.com","電影Ching報","HKJC","賽馬會青少年體育記者計劃","博擊會Fightclub","TVB (official)","澳門日報-Macao Daily News","TDM 澳廣視新聞","澳廣視 MACAU TDM","macaogcs 澳門特別行政區政府新聞局","澳門力報 exmoo","澳門教區社會傳播中心CDMCS Macau","官方頻道澳亞衛視","澳門故事","澳門肥坤MacauWK Walker","Touch电视剧","Guangdong-Hong Kong-Macao Greater Bay Area粵港澳大灣區","大灣區的蟻民","大灣區侶遊 Couple Travel GBA","巴迪叔叔-港人移居大灣區的退休生活","新時代電視 Fairchild Television","Sing Tao A1 Chinese Radio","MingPaoCanada","MingPao Daily Vancouver明報溫哥華","Moon媽在英生活","走佬去UK","JASON","Ricky講煮講食","曾鎧琪 Alison【香港曾小妹】","May in Hong Kong 私の香港生活","K.A.T.","東京情報猿","香港美食 by Alexis","HKMINICHEF","リンモク 鈴木 Lingmuk【廣東話學習Vlog】","TVB 奇幻穿越劇場 (TVB Fantasy Drama)","TVB 綜藝","TVB Anywhere Life","TVB Best Drama 熱播劇場","TVB Drama – Comedy 喜劇台","TVB Drama – Action & WuXia 動作武俠","TVB Drama - Crime & Mystery 神秘頻道","灼見名家文化教育","星島溫哥華","Fairchild TV FTV","香港人看英國新聞"]'
           echo "Channels: $CHANNELS_JSON"
 
+          # 与手动扫描共用服务端限速：每读取 10 条暂停 10 秒后继续
           SCAN_RESP=$(curl -s --max-time 5400 -X POST http://localhost:3000/api/scan \
             -H 'Content-Type: application/json' \
             -d "{\"channels\": $CHANNELS_JSON}")

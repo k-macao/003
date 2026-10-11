@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { readCaptions } from './captions.mjs';
+import { createReadThrottle } from './read-throttle.mjs';
 import { readFile } from 'node:fs/promises';
 import { URL } from 'node:url';
 import { summarize, renderSummaryHtml, analyzeLongShort } from './ai.mjs';
@@ -17,6 +18,10 @@ import {
 } from './sensitive-filter.mjs';
 
 const PORT = process.env.PORT || 3000;
+// 进程级共用：网页分批扫描、备用重试、SA 与 GitHub Actions 均使用同一读取队列。
+const dataReadThrottle = createReadThrottle({
+  onPause: ({ readCount, pauseMs }) => console.log(`[read-throttle] 已处理 ${readCount} 条数据，暂停 ${pauseMs / 1000} 秒后继续`)
+});
 const clean = s => String(s || '').replace(/台湾|台灣/g, '中国台湾').replace(/\s+/g, ' ').trim();
 const decode = s => s.replace(/\\u([0-9a-fA-F]{4})/g, (_,c)=>String.fromCharCode(parseInt(c,16))).replace(/\\"/g,'"').replace(/&amp;/g,'&');
 const json = (res, code, body) => { res.writeHead(code, {'Content-Type':'application/json; charset=utf-8'}); res.end(JSON.stringify(body)); };
@@ -391,29 +396,34 @@ async function fetchSeekingAlphaHtml() {
 async function scanSeekingAlpha(limit = 12) {
   const now = Date.now();
   const itemLimit = Math.max(1, Math.min(Number(limit) || 12, 25));
-  const { html, via } = await fetchSeekingAlphaHtml();
-  const raws = parseSeekingAlphaList(html);
-  if (!raws.length) throw Error('Seeking Alpha 列表解析为空（页面结构变化或被限流）');
+  const { raws, via } = await dataReadThrottle.prepare(async () => {
+    const { html, via } = await fetchSeekingAlphaHtml();
+    const raws = parseSeekingAlphaList(html);
+    if (!raws.length) throw Error('Seeking Alpha 列表解析为空（页面结构变化或被限流）');
+    return { raws, via };
+  });
   console.log(`[sa] 解析到 ${raws.length} 篇候选文章（读取方式：${via}）`);
   const items = [], hidden = [];
   for (const raw of raws) {
     if (items.length >= itemLimit) break;
-    const it = normalizeSAItem(raw, now);
-    const fresh = evaluateFreshness({ published: it.publishedLabel, publishedAt: it.publishedAt }, now);
-    if (fresh.ok === false) {
-      hidden.push({ channel: SA_CHANNEL, title: it.title, url: it.url, reason: fresh.reason || `超出 ${FRESH_WINDOW_LABEL}窗口` });
-      continue;
-    }
-    if (fresh.ok === null) {
-      // 无法验证发布时间 → 与其它来源同口径：隐藏，不冒充新鲜内容
-      hidden.push({ channel: SA_CHANNEL, title: it.title, url: it.url, reason: '无法验证发布时间（已隐藏）' });
-      continue;
-    }
-    // 英文标题/摘要逐条译为中文（失败保留原文并标示，绝不伪造翻译）
-    if (it.originalTitle) it.title = await translateTitleToChinese(it.originalTitle);
-    if (raw.summaryZh) it.summaryZh = raw.summaryZh;
-    items.push(it);
-    await new Promise(r => setTimeout(r, 120));
+    await dataReadThrottle.read(async () => {
+      const it = normalizeSAItem(raw, now);
+      const fresh = evaluateFreshness({ published: it.publishedLabel, publishedAt: it.publishedAt }, now);
+      if (fresh.ok === false) {
+        hidden.push({ channel: SA_CHANNEL, title: it.title, url: it.url, reason: fresh.reason || `超出 ${FRESH_WINDOW_LABEL}窗口` });
+        return;
+      }
+      if (fresh.ok === null) {
+        // 无法验证发布时间 → 与其它来源同口径：隐藏，不冒充新鲜内容
+        hidden.push({ channel: SA_CHANNEL, title: it.title, url: it.url, reason: '无法验证发布时间（已隐藏）' });
+        return;
+      }
+      // 英文标题/摘要逐条译为中文（失败保留原文并标示，绝不伪造翻译）
+      if (it.originalTitle) it.title = await translateTitleToChinese(it.originalTitle);
+      if (raw.summaryZh) it.summaryZh = raw.summaryZh;
+      items.push(it);
+      await new Promise(r => setTimeout(r, 120));
+    });
   }
   // AI 多空概率：有 Key 走 DeepSeek 推理，无 Key 走本地规则（与主情报流同口径）
   try {
@@ -464,35 +474,38 @@ async function scan(names, limit = 50) {
  for (const name of names) {
   if (results.length >= itemLimit) break;
   try {
-   const videos = await searchChannel(name);
+   const videos = await dataReadThrottle.prepare(() => searchChannel(name));
    let kept = 0, probed = 0;
    for (const video of videos) {
     if (results.length >= itemLimit || kept >= PER_SOURCE_LIMIT) break;
-    const needsProbe = evaluateFreshness(video, now).ok === null;
-    if (needsProbe && probed >= PROBE_BUDGET) {
-     stale.push({ channel: name, title: video.title, url: video.url, reason: `无法验证发布时间（已隐藏）` });
-     continue;
-    }
-    if (needsProbe) probed++;
-    const fresh = needsProbe ? await verifyFreshness(video, now) : evaluateFreshness(video, now);
-    if (!fresh.ok) {
-     console.log(`[fresh] 隐藏 ${name} · ${video.id}：${fresh.reason || '超出 72 小时窗口'}`);
-     stale.push({ channel: name, title: video.title, url: video.url, reason: fresh.reason || `超出 ${FRESH_WINDOW_LABEL}窗口` });
-     continue;
-    }
-    const caption = await readCaptions(video.id);
-    const { text: transcript, ...transcriptInfo } = caption;
-    console.log(`[caption] ${video.id}: ${caption.code} (${transcript.length}字)`);
-    const english = isEnglishSource(name);
-    const originalTitle = video.title;
-    const title = english ? await translateTitleToChinese(originalTitle) : originalTitle;
-    results.push({...video, title, originalTitle: title !== originalTitle ? originalTitle : '', channel:name, transcript, transcriptInfo,
-      // 时效字段：发布时间（ISO / 澳门时间文案 / 年龄）供网页与推送展示
-      publishedAt: fresh.publishedAt, publishedLabel: fresh.label, publishedMacau: formatMacau(fresh.publishedAt),
-      publishedAgeMs: fresh.ageMs, publishedSource: fresh.source, freshWindow: FRESH_WINDOW_LABEL,
-      // 状态依据实际读取结果，而不是频道名称或是否生成多空概率。
-      status: caption.status});
-    kept++;
+    // 按候选条目计数，过滤或读取失败也计入；等待在字幕超时预算之外。
+    await dataReadThrottle.read(async () => {
+     const needsProbe = evaluateFreshness(video, now).ok === null;
+     if (needsProbe && probed >= PROBE_BUDGET) {
+      stale.push({ channel: name, title: video.title, url: video.url, reason: `无法验证发布时间（已隐藏）` });
+      return;
+     }
+     if (needsProbe) probed++;
+     const fresh = needsProbe ? await verifyFreshness(video, now) : evaluateFreshness(video, now);
+     if (!fresh.ok) {
+      console.log(`[fresh] 隐藏 ${name} · ${video.id}：${fresh.reason || '超出 72 小时窗口'}`);
+      stale.push({ channel: name, title: video.title, url: video.url, reason: fresh.reason || `超出 ${FRESH_WINDOW_LABEL}窗口` });
+      return;
+     }
+     const caption = await readCaptions(video.id);
+     const { text: transcript, ...transcriptInfo } = caption;
+     console.log(`[caption] ${video.id}: ${caption.code} (${transcript.length}字)`);
+     const english = isEnglishSource(name);
+     const originalTitle = video.title;
+     const title = english ? await translateTitleToChinese(originalTitle) : originalTitle;
+     results.push({...video, title, originalTitle: title !== originalTitle ? originalTitle : '', channel:name, transcript, transcriptInfo,
+       // 时效字段：发布时间（ISO / 澳门时间文案 / 年龄）供网页与推送展示
+       publishedAt: fresh.publishedAt, publishedLabel: fresh.label, publishedMacau: formatMacau(fresh.publishedAt),
+       publishedAgeMs: fresh.ageMs, publishedSource: fresh.source, freshWindow: FRESH_WINDOW_LABEL,
+       // 状态依据实际读取结果，而不是频道名称或是否生成多空概率。
+       status: caption.status});
+     kept++;
+    });
    }
    if (!kept) console.log(`[fresh] ${name}：72 小时内无可推送内容，该来源整体隐藏`);
   } catch (e) { if (results.length < itemLimit) results.push({channel:name, error:e.message}); }
