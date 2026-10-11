@@ -143,6 +143,45 @@ npm start     # 启动服务
 - **读取方式探针**：真实读取采用「探针方式」分级降级（详见下方「无头浏览器探针」一节）——轻量 HTTP 探针被 403 / 空页限流时自动升级为无头浏览器渲染读取；接口返回 `via` 字段（`http#1` / `http#2` / `headless:playwright-core` …），网页状态条会标注「无头浏览器探针」。
 - 合规口径与全文一致：仅供研究参考，不构成投资建议。
 
+## 读取搭建方案 · 读取 YouTube 视频标题（三大方案）
+
+以下是读取 YouTube 视频标题的三大高效方案总结（**按推荐程度排序**）：
+
+| 排序 | 方案 | 核心组件 | 适用场景 | 核心优势 |
+| --- | --- | --- | --- | --- |
+| 一 | **yt-dlp 微服务方案**（综合最佳） | Python + FastAPI + yt-dlp | 需要高并发、高稳定性、作为后端 API 调用的生产环境 | 免无头浏览器、速度极快、不占内存、自带防风控解析机制 |
+| 二 | **网页 OpenGraph 解析方案**（最轻量） | Python + requests + BeautifulSoup | 低频查询、临时小脚本、不需要常驻后台服务的轻量任务 | 代码极简（十几行）、零复杂依赖、无需启动服务 |
+| 三 | **官方 YouTube Data API v3**（最合规） | Google Developer API Key + HTTP 请求 | 商业级正规产品、长期稳定运行、有合规要求的企业项目 | 100% 官方支持、绝对稳定、永不失效（受每日调用配额限制） |
+
+### 方案一：yt-dlp 微服务方案（综合最佳）
+
+- **核心组件**：Python + FastAPI + yt-dlp
+- **适用场景**：需要高并发、高稳定性、作为后端 API 调用的生产环境。
+- **核心优势**：免无头浏览器、速度极快、不占内存、自带防风控解析机制。
+- **简要说明**：通过 Python 将 yt-dlp 封装为一个轻量级 HTTP 接口，输入链接即可直接返回 JSON 格式的标题及相关元数据。
+
+### 方案二：网页 OpenGraph 解析方案（最轻量）
+
+- **核心组件**：Python + requests + BeautifulSoup
+- **适用场景**：低频查询、临时小脚本、不需要常驻后台服务的轻量任务。
+- **核心优势**：代码极简（十几行）、零复杂依赖、无需启动服务。
+- **简要说明**：直接发起纯 HTTP 请求网页源码，通过提取网页 `<meta property="og:title">` 标签获取标题。
+
+### 方案三：官方 YouTube Data API v3（最合规）
+
+- **核心组件**：Google Developer API Key + HTTP 请求
+- **适用场景**：商业级正规产品、长期稳定运行、有合规要求的企业项目。
+- **核心优势**：100% 官方支持、绝对稳定、永不失效。
+- **简要说明**：通过调用官方提供的视频详情接口，传入 Video ID 和 Key 直接获取纯净数据（受每日调用配额限制）。
+
+### 与本项目现状的对照（截至本次更新，尚未改造）
+
+- 现有标题读取链路仍是**搜索页 HTML 正则解析**：`searchChannel()`（`server.js:189`）请求 `https://www.youtube.com/results?search_query=…`，由 `parseVideosWithStrategies()`（`server.js:100`）用 **5 套策略**从 `ytInitialData` 中提取 `videoId` 与标题（`title.runs[].text` / `simpleText`），全部方向失败才抛异常。
+- 发布时间复核读取 watch 页的 `publishDate` / `uploadDate` / `datePublished`（`fetchPublishedAt()`，`server.js:259`）——与**方案二**同源：同一次请求即可顺带取 `<meta property="og:title">` 作为标题兜底。
+- **方案一**的依赖入口已存在：`tools/requirements-video-ocr.txt` 已列出 `yt-dlp`，`tools/video_ocr.py` 用它下载视频；落地时可复用 `tools/setup_video_ocr.sh` 创建的 `.venv` 环境。
+- **方案三**需要额外的 `YOUTUBE_API_KEY`：当前仓库没有 YouTube Data API v3 相关代码（唯一的 `googleapis` 调用是 `server.js:32` 的免费翻译端点 `translate.googleapis.com`，无需 Key），未配置前不纳入默认链路。
+- 本节仅记录方案选型，**不代表已完成改造**；任一方案落地后在此标注实现位置与调用方式。
+
 ## 无头浏览器探针（分级降级）
 
 SA 等站点会对机房 IP 限流（403 / 空页），纯 HTTP 探针读不到时，项目以**探针方式**逐级升级为无头浏览器真实渲染读取（`headless.mjs`）：
