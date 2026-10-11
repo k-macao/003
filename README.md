@@ -81,14 +81,14 @@ npm start     # 启动服务
    - Secret: 你的 DeepSeek API key（[获取地址](https://platform.deepseek.com/api_keys)）
 2. 进入 Actions →「AI 扫描」→ Run workflow
 3. 可选项：
-   - `channels`：要扫描的频道，用 `|` 分隔，留空或填 `ALL` 则默认扫描全部 55 个频道
+   - `channels`：要扫描的频道，用 `|` 分隔，留空或填 `ALL` 则默认扫描全部 54 个频道
    - `push_to_wechat`：**默认勾选**，扫描完成后自动推送微信；可取消
    - `pushplus_token`：也可在此临时填入（会优先于 Secret）
    - `enable_ai_summary`：默认 `true`，扫描完成后会用 AI 对所有视频字幕做主题聚类总结，拼到推送内容顶部
 
 ### 定时自动推送
 
-- 工作流内置定时任务（`schedule`）：**每天澳门时间 09:00 与 17:00** 自动扫描全量 55 个频道并推送微信（对应 GitHub cron：`0 1 * * *` / `0 9 * * *`，UTC）。
+- 工作流内置定时任务（`schedule`）：**每天澳门时间 09:00 与 17:00** 自动扫描全量 54 个频道并推送微信（对应 GitHub cron：`0 1 * * *` / `0 9 * * *`，UTC）。
 - 只需配置好 `PUSHPLUS_TOKEN` Secret，到点即自动推；未配置 token 时仅扫描不推送。
 
 工作流会先跑构建与测试（Node 18 / 20），通过后执行扫描、生成 DOS 监视器 · 复古终端竖版 HTML 简报并调用 PushPlus 推送到微信。
