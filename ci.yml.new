@@ -32,7 +32,7 @@ on:
         default: ''
         type: string
       pushplus_topic:
-        description: 'PushPlus 一对多群组编码 topic（优先于 Secrets.PUSHPLUS_TOPIC；都为空时退回一对一，仅发给自己）'
+        description: 'PushPlus 一对多群组编码 topic（优先于 Secrets.PUSHPLUS_TOPIC；都为空时使用默认群组 oai.1）'
         required: false
         default: ''
         type: string
@@ -44,6 +44,8 @@ on:
 
 env:
   NODE_VERSION: 20
+  # PushPlus 一对多默认群组编码（群组 oai.1）：手动输入 pushplus_topic 或 Secrets.PUSHPLUS_TOPIC 可覆盖
+  PUSHPLUS_DEFAULT_TOPIC: 'oai.1'
 
 jobs:
   build-and-test:
@@ -197,36 +199,14 @@ jobs:
             return out;
           }
 
-          // AI 多空概率（看多 / 看空）条形图：微信会剥离 class，因此全部 inline
-
-          const lsBar = (v, w = 10) => { const k = Math.max(0, Math.min(w, Math.round(v / 100 * w))); return '█'.repeat(k) + '░'.repeat(w - k); };
-
+          // AI 多空概率（看多 / 看空）：每条只占一行 —— 徽章 + 多 X% + 分割条（█ 看多 / ░ 看空）+ 空 Y%；
+          // 不附模型 / 免责 / 未读正文说明；本地规则兜底时徽章写「规则多空概率」，不冒充 AI 结果。微信会剥离 class，因此全部 inline
+          const lsSplit = (bull, w = 10) => { const k = Math.max(0, Math.min(w, Math.round(bull / 100 * w))); return { on: '█'.repeat(k), off: '░'.repeat(w - k) }; };
           const lsBlock = x => {
-
             const bb = x.bullBear;
-
             if (!bb || typeof bb.bull !== 'number') return '';
-
-            const src = bb.source === 'ai' ? 'DeepSeek 多空推理' : '本地规则推算（未配置 AI Key）';
-
-            return `<div style="margin-top:6px;padding:6px 7.5px;background:#031203;border:1px solid #0d9b4c;">
-
-                    <div style="display:flex;justify-content:space-between;align-items:center;gap:4.5px;font-family:'Courier New',Consolas,monospace;font-size:7px;flex-wrap:wrap;">
-
-                      <span style="background:#00ff66;color:#041404;padding:0.75px 3.75px;font-weight:700;letter-spacing:0.5px;">AI 多空概率</span>
-
-                      <span style="background:#041404;color:#b8f2cb;padding:0.75px 3.75px;font-weight:700;">多 ${bb.bull}% / 空 ${bb.bear}%</span>
-
-                    </div>
-
-                    <div style="margin-top:4.5px;font-family:'Courier New',Consolas,monospace;font-size:8.5px;color:#b8f2cb;font-weight:700;line-height:1.7;word-break:break-all;white-space:pre-wrap;">多 ${lsBar(bb.bull)} ${bb.bull}%
-
-          空 ${lsBar(bb.bear)} ${bb.bear}%</div>
-
-                    <div style="margin-top:3px;font-family:'Courier New',Consolas,monospace;font-size:7px;color:#63b47f;line-height:1.5;">${esc(bb.note || '')} · 模型：${src} · 仅供研究参考，不构成投资建议${x.transcript ? '' : '<br>未读取视频正文 · 概率仅依据标题与频道推算，不代表已分析视频'}</div>
-
-                  </div>`;
-
+            const bar = lsSplit(bb.bull);
+            return `<div style="margin-top:6px;padding:3.75px 6px;background:#031203;border:1px solid #0d9b4c;font-family:'Courier New',Consolas,monospace;font-size:8.5px;line-height:1.4;color:#b8f2cb;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span style="background:#00ff66;color:#041404;padding:0.75px 3.75px;font-size:7px;letter-spacing:0.5px;">${bb.source === 'ai' ? 'AI 多空概率' : '规则多空概率'}</span> 多 ${bb.bull}% ${bar.on}<span style="color:#3f8f5b;">${bar.off}</span> 空 ${bb.bear}%</div>`;
           };
 
           const sections = items.map((x,i)=> x.error
@@ -342,7 +322,7 @@ jobs:
 
           // 不推个股页：发送前剥离个股板块/个股页
           const content = stripStockSections((summaryHtml || '') + saHtml + baseContent);
-          const title = '章鱼 AI 全景分析';
+          const title = '章鱼 AI · 舆情量化分析';
           fs.writeFileSync('brief.html', content);
 
           const PUSHPLUS_MAX_CHARS = 90000;
@@ -369,14 +349,16 @@ jobs:
           fs.writeFileSync('chunks.json', JSON.stringify({header, footer, chunks, title}, null, 2));
 
           const token = process.env.PUSHPLUS_TOKEN;
-          // 一对多：带 topic（群组编码）发送给群组全部订阅人；未配置时退回一对一（仅发给 token 本人）
-          const topic = String(process.env.PUSHPLUS_TOPIC || '').trim();
-          console.log(topic ? '推送模式：一对多（已配置群组编码，发送给群组全部订阅人）' : '::warning::未配置 PUSHPLUS_TOPIC（群组编码），本次按一对一推送，仅发给 token 本人');
+          // 一对多：始终带 topic（群组编码）发送给群组全部订阅人；
+          // 优先 pushplus_topic 输入 / Secrets.PUSHPLUS_TOPIC，都为空时使用默认群组 PUSHPLUS_DEFAULT_TOPIC（oai.1）
+          const topic = String(process.env.PUSHPLUS_TOPIC || '').trim() || String(process.env.PUSHPLUS_DEFAULT_TOPIC || '').trim();
+          if (!topic) { console.error('::error::缺少 PushPlus 群组编码（PUSHPLUS_TOPIC / PUSHPLUS_DEFAULT_TOPIC），已停止推送'); process.exit(1); }
+          console.log(`推送模式：一对多 · 群组 ${topic}（发送给群组全部订阅人）`);
           let okCount=0;
           for(let i=0;i<chunks.length;i++){
             const partTitle = chunks.length>1 ? `${title} (${i+1}/${chunks.length})` : title;
             const partContent = (header||footer) ? `${header}${chunks[i]}${footer}` : chunks[i];
-            const payload = JSON.stringify({ token, title: partTitle, content: partContent, template: 'html', channel: 'wechat', ...(topic ? { topic } : {}) });
+            const payload = JSON.stringify({ token, title: partTitle, content: partContent, template: 'html', channel: 'wechat', topic });
             console.log(`推送 ${i+1}/${chunks.length}: ${partTitle} (${Buffer.byteLength(partContent,'utf8')} bytes)`);
             let r, text, data;
             try {
@@ -501,36 +483,14 @@ jobs:
               return out;
             }
 
-            // AI 多空概率（看多 / 看空）条形图：微信会剥离 class，因此全部 inline
-
-            const lsBar = (v, w = 10) => { const k = Math.max(0, Math.min(w, Math.round(v / 100 * w))); return '█'.repeat(k) + '░'.repeat(w - k); };
-
+            // AI 多空概率（看多 / 看空）：每条只占一行 —— 徽章 + 多 X% + 分割条（█ 看多 / ░ 看空）+ 空 Y%；
+            // 不附模型 / 免责 / 未读正文说明；本地规则兜底时徽章写「规则多空概率」，不冒充 AI 结果。微信会剥离 class，因此全部 inline
+            const lsSplit = (bull, w = 10) => { const k = Math.max(0, Math.min(w, Math.round(bull / 100 * w))); return { on: '█'.repeat(k), off: '░'.repeat(w - k) }; };
             const lsBlock = x => {
-
               const bb = x.bullBear;
-
               if (!bb || typeof bb.bull !== 'number') return '';
-
-              const src = bb.source === 'ai' ? 'DeepSeek 多空推理' : '本地规则推算（未配置 AI Key）';
-
-              return `<div style="margin-top:6px;padding:6px 7.5px;background:#031203;border:1px solid #0d9b4c;">
-
-                      <div style="display:flex;justify-content:space-between;align-items:center;gap:4.5px;font-family:'Courier New',Consolas,monospace;font-size:7px;flex-wrap:wrap;">
-
-                        <span style="background:#00ff66;color:#041404;padding:0.75px 3.75px;font-weight:700;letter-spacing:0.5px;">AI 多空概率</span>
-
-                        <span style="background:#041404;color:#b8f2cb;padding:0.75px 3.75px;font-weight:700;">多 ${bb.bull}% / 空 ${bb.bear}%</span>
-
-                      </div>
-
-                      <div style="margin-top:4.5px;font-family:'Courier New',Consolas,monospace;font-size:8.5px;color:#b8f2cb;font-weight:700;line-height:1.7;word-break:break-all;white-space:pre-wrap;">多 ${lsBar(bb.bull)} ${bb.bull}%
-
-            空 ${lsBar(bb.bear)} ${bb.bear}%</div>
-
-                      <div style="margin-top:3px;font-family:'Courier New',Consolas,monospace;font-size:7px;color:#63b47f;line-height:1.5;">${esc(bb.note || '')} · 模型：${src} · 仅供研究参考，不构成投资建议${x.transcript ? '' : '<br>未读取视频正文 · 概率仅依据标题与频道推算，不代表已分析视频'}</div>
-
-                    </div>`;
-
+              const bar = lsSplit(bb.bull);
+              return `<div style="margin-top:6px;padding:3.75px 6px;background:#031203;border:1px solid #0d9b4c;font-family:'Courier New',Consolas,monospace;font-size:8.5px;line-height:1.4;color:#b8f2cb;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span style="background:#00ff66;color:#041404;padding:0.75px 3.75px;font-size:7px;letter-spacing:0.5px;">${bb.source === 'ai' ? 'AI 多空概率' : '规则多空概率'}</span> 多 ${bb.bull}% ${bar.on}<span style="color:#3f8f5b;">${bar.off}</span> 空 ${bb.bear}%</div>`;
             };
 
             const sections = items.map((x,i)=> x.error
@@ -646,7 +606,7 @@ jobs:
 
             // 不推个股页：发送前剥离个股板块/个股页
             const content = stripStockSections((summaryHtml || '') + saHtml + baseContent);
-            const title = '章鱼 AI 全景分析';
+            const title = '章鱼 AI · 舆情量化分析';
             fs.writeFileSync('brief.html', content);
 
             const PUSHPLUS_MAX_CHARS = 90000;
@@ -673,14 +633,16 @@ jobs:
             fs.writeFileSync('chunks.json', JSON.stringify({header, footer, chunks, title}, null, 2));
 
             const token = process.env.PUSHPLUS_TOKEN;
-            // 一对多：带 topic（群组编码）发送给群组全部订阅人；未配置时退回一对一（仅发给 token 本人）
-            const topic = String(process.env.PUSHPLUS_TOPIC || '').trim();
-            console.log(topic ? '推送模式：一对多（已配置群组编码，发送给群组全部订阅人）' : '::warning::未配置 PUSHPLUS_TOPIC（群组编码），本次按一对一推送，仅发给 token 本人');
+            // 一对多：始终带 topic（群组编码）发送给群组全部订阅人；
+            // 优先 pushplus_topic 输入 / Secrets.PUSHPLUS_TOPIC，都为空时使用默认群组 PUSHPLUS_DEFAULT_TOPIC（oai.1）
+            const topic = String(process.env.PUSHPLUS_TOPIC || '').trim() || String(process.env.PUSHPLUS_DEFAULT_TOPIC || '').trim();
+            if (!topic) { console.error('::error::缺少 PushPlus 群组编码（PUSHPLUS_TOPIC / PUSHPLUS_DEFAULT_TOPIC），已停止推送'); process.exit(1); }
+            console.log(`推送模式：一对多 · 群组 ${topic}（发送给群组全部订阅人）`);
             let okCount=0;
             for(let i=0;i<chunks.length;i++){
               const partTitle = chunks.length>1 ? `${title} (${i+1}/${chunks.length})` : title;
               const partContent = (header||footer) ? `${header}${chunks[i]}${footer}` : chunks[i];
-              const payload = JSON.stringify({ token, title: partTitle, content: partContent, template: 'html', channel: 'wechat', ...(topic ? { topic } : {}) });
+              const payload = JSON.stringify({ token, title: partTitle, content: partContent, template: 'html', channel: 'wechat', topic });
               console.log(`推送 ${i+1}/${chunks.length}: ${partTitle} (${Buffer.byteLength(partContent,'utf8')} bytes)`);
               let r, text, data;
               try {

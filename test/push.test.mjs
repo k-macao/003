@@ -1,4 +1,4 @@
-// 服务端推送回归：一对多（topic 群组编码）、一对一回退、配置接口不泄露密钥、无字幕状态文案。
+// 服务端推送回归：一对多（topic 群组编码，默认 oai.1）、配置接口不泄露 Token、推送标题、无字幕状态文案。
 // 启动真实 server.js，用预加载脚本拦截 PushPlus 请求 —— 不联网、不发送任何真实消息。
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const TOKEN = 'test-only-token';
+const TITLE = '章鱼 AI · 舆情量化分析';
 
 async function startServer(env = {}) {
   const child = spawn(process.execPath, ['--require', './test/fixtures/mock-pushplus.cjs', 'server.js'], {
@@ -60,22 +61,25 @@ test('一对多：服务端 PUSHPLUS_TOPIC 写入 PushPlus 请求；网页群组
 
   const configRes = await s.get('/api/push-config');
   const raw = await configRes.text();
-  assert.deepEqual(JSON.parse(raw), { wechatConfigured: true, topicConfigured: true, mode: 'one-to-many', channel: 'wechat' });
-  assert.ok(!raw.includes(TOKEN) && !raw.includes('team-brief'), '配置接口不得回传 Token / 群组编码');
+  assert.deepEqual(JSON.parse(raw), { wechatConfigured: true, topic: 'team-brief', mode: 'one-to-many', channel: 'wechat' });
+  assert.ok(!raw.includes(TOKEN), '配置接口不得回传 Token');
 
   const r1 = await s.post('/api/push', { content: brief });
   const d1 = await r1.json();
   assert.equal(r1.status, 200);
   assert.equal(d1.ok, true);
   assert.equal(d1.mode, 'one-to-many');
+  assert.equal(d1.topic, 'team-brief');
+  assert.ok(!JSON.stringify(d1).includes(TOKEN));
   await s.waitPayloads(1);
   assert.equal(s.payloads[0].topic, 'team-brief');
   assert.equal(s.payloads[0].token, TOKEN);
+  assert.equal(s.payloads[0].title, TITLE);
   assert.equal(s.payloads[0].channel, 'wechat');
   assert.equal(s.payloads[0].template, 'html');
 
   const r2 = await s.post('/api/push', { content: brief, topic: '  web-group  ' });
-  assert.equal((await r2.json()).mode, 'one-to-many');
+  assert.equal((await r2.json()).topic, 'web-group');
   await s.waitPayloads(2);
   assert.equal(s.payloads[1].topic, 'web-group');
 
@@ -85,19 +89,23 @@ test('一对多：服务端 PUSHPLUS_TOPIC 写入 PushPlus 请求；网页群组
   assert.equal(s.payloads[2].topic, 'team-brief');
 });
 
-test('未配置群组编码时退回一对一：请求不带 topic', async t => {
-  const s = await startServer({ PUSHPLUS_TOKEN: TOKEN });
-  t.after(() => s.stop());
+test('未配置群组编码时默认一对多发送到群组 oai.1（含空白配置），标题统一', async t => {
+  for (const PUSHPLUS_TOPIC of ['', '   ']) {
+    const s = await startServer({ PUSHPLUS_TOKEN: TOKEN, PUSHPLUS_TOPIC });
+    t.after(() => s.stop());
 
-  const config = await (await s.get('/api/push-config')).json();
-  assert.equal(config.topicConfigured, false);
-  assert.equal(config.mode, 'one-to-one');
+    const config = await (await s.get('/api/push-config')).json();
+    assert.equal(config.topic, 'oai.1');
+    assert.equal(config.mode, 'one-to-many');
 
-  const d = await (await s.post('/api/push', { content: brief })).json();
-  assert.equal(d.ok, true);
-  assert.equal(d.mode, 'one-to-one');
-  await s.waitPayloads(1);
-  assert.ok(!('topic' in s.payloads[0]), JSON.stringify(s.payloads[0]));
+    const d = await (await s.post('/api/push', { content: brief })).json();
+    assert.equal(d.ok, true);
+    assert.equal(d.mode, 'one-to-many');
+    assert.equal(d.topic, 'oai.1');
+    await s.waitPayloads(1);
+    assert.equal(s.payloads[0].topic, 'oai.1', JSON.stringify(s.payloads[0]));
+    assert.equal(s.payloads[0].title, TITLE);
+  }
 });
 
 test('示例数据：未读到字幕的条目状态为「仅供参考，不做推荐」', async t => {

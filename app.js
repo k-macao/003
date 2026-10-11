@@ -7,24 +7,25 @@ let demoInProgress = false;
 let pushInProgress = false;
 let lastIsDemo = false;
 let serverWechatConfigured = false;
-let serverTopicConfigured = false;
-// 只取得是否配置的布尔值；绝不向浏览器返回服务端 Token / 群组编码。
+let serverTopic = ''; // 服务端实际使用的一对多群组编码（默认 oai.1，服务端 PUSHPLUS_TOPIC 可覆盖）
+// 只取得 Token 是否已配置的布尔值（绝不向浏览器返回服务端 Token）与实际使用的群组编码。
 const pushConfigReady = fetch('/api/push-config', { signal: AbortSignal.timeout(5000) })
   .then(r => r.ok ? r.json() : {})
   .then(d => {
     serverWechatConfigured = d.wechatConfigured === true;
-    serverTopicConfigured = d.topicConfigured === true;
+    serverTopic = typeof d.topic === 'string' ? d.topic.trim() : '';
+    const input = document.querySelector('#topic');
+    if (input && serverTopic) input.placeholder = `留空 = 默认群组 ${serverTopic}；改发其它群组时再填写`;
   })
   .catch(() => {})
   .finally(() => updatePushMode());
 
-// PushPlus 一对多：带群组编码（topic）时发送给群组全部订阅人；
-// 网页未填写且服务端未配置 PUSHPLUS_TOPIC 时退回一对一（仅发给 Token 本人），并在 MODE 中如实标注。
+// PushPlus 一对多：始终按群组编码（topic）发送给群组全部订阅人。
+// 网页输入框填写时优先；留空则交给服务端（默认群组 oai.1，服务端 PUSHPLUS_TOPIC 可覆盖）。
 function pushTarget() {
   const topic = (document.querySelector('#topic')?.value || '').trim();
-  if (topic) return { topic, oneToMany: true, label: `一对多 · 群组 ${topic}` };
-  if (serverTopicConfigured) return { topic: '', oneToMany: true, label: '一对多 · 服务端群组' };
-  return { topic: '', oneToMany: false, label: '一对一 · 仅自己' };
+  const group = topic || serverTopic;
+  return { topic, group, label: group ? `一对多 · 群组 ${group}` : '一对多 · 默认群组' };
 }
 function updatePushMode() {
   const el = document.querySelector('#pushMode');
@@ -74,22 +75,23 @@ function relAgeMs(text) {
 }
 
 // ===================== AI 多空概率（看多 / 看空） =====================
-// 字幕读取状态独立展示；无字幕时只做标题推算，不冒充正文分析。
-function lsBar(v, width = 10) {
-  const k = Math.max(0, Math.min(width, Math.round(v / 100 * width)));
-  return '█'.repeat(k) + '░'.repeat(width - k);
+// 每条内容只占一行：徽章 + 多 X% + 分割条 + 空 Y%（不再附模型 / 免责 / 未读正文说明）。
+// 分割条 10 格：█ = 看多占比，░ = 看空占比。本地规则兜底时徽章写「规则多空概率」，不冒充 AI 结果。
+function lsSplit(bull, width = 10) {
+  const k = Math.max(0, Math.min(width, Math.round(bull / 100 * width)));
+  return { on: '█'.repeat(k), off: '░'.repeat(width - k) };
 }
+const lsBadgeText = bb => bb.source === 'ai' ? 'AI 多空概率' : '规则多空概率';
 function lsHtml(x) {
   const bb = x && x.bullBear;
   if (!bb || typeof bb.bull !== 'number') return '';
-  const src = bb.source === 'ai' ? '模型：DeepSeek 多空推理' : '模型：本地规则（未配置 AI Key）';
+  const bar = lsSplit(bb.bull);
   return `
         <div class="longshort">
-          <div class="ls-head"><span class="ls-badge">AI 多空概率</span><span class="ls-tag">多 ${bb.bull}% / 空 ${bb.bear}%</span></div>
-          <div class="ls-row bull"><span class="ls-k">多</span><span class="ls-bar">${lsBar(bb.bull)}</span><span class="ls-v">${bb.bull}%</span></div>
-          <div class="ls-row bear"><span class="ls-k">空</span><span class="ls-bar">${lsBar(bb.bear)}</span><span class="ls-v">${bb.bear}%</span></div>
-          <div class="ls-note">${esc(bb.note || '')} · ${src} · 仅供研究参考，不构成投资建议</div>
-          ${x.transcript ? '' : '<div class="ls-note">未读取视频正文 · 概率仅依据标题与频道推算，不代表已分析视频</div>'}
+          <span class="ls-badge">${lsBadgeText(bb)}</span>
+          <span class="ls-v bull">多 ${bb.bull}%</span>
+          <span class="ls-bar"><b>${bar.on}</b>${bar.off}</span>
+          <span class="ls-v bear">空 ${bb.bear}%</span>
         </div>`;
 }
 
@@ -483,25 +485,13 @@ async function pushCurrentReport({ automatic = false } = {}) {
   };
   // 字幕行首时间戳（00:12）压到最暗一层，只当锚点用
   const fmtPush = t => esc(t).replace(/(^|\n)(\d{1,2}:\d{2}(?::\d{2})?)/g, '$1<span style="color:#2c6742;font-size:8px;">$2</span>');
-  // AI 多空概率（微信会剥离 class，全部 inline）：条形图 + 来源标注
-  const lsBarPush = (v, w = 10) => {
-    const k = Math.max(0, Math.min(w, Math.round(v / 100 * w)));
-    return '█'.repeat(k) + '░'.repeat(w - k);
-  };
+  // AI 多空概率（微信会剥离 class，全部 inline）：每条只占一行，不附模型 / 免责 / 未读正文说明
   const lsBlockPush = x => {
     const bb = x.bullBear;
     if (!bb || typeof bb.bull !== 'number') return '';
-    const src = bb.source === 'ai' ? 'DeepSeek 多空推理' : '本地规则推算（未配置 AI Key）';
+    const bar = lsSplit(bb.bull);
     return `
-        <div style="margin-top:6px;padding:6px 7.5px;background:#031203;border:1px solid #0d9b4c;">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:4.5px;font-family:'Courier New',Consolas,monospace;font-size:7px;flex-wrap:wrap;">
-            <span style="background:#00ff66;color:#041404;padding:0.75px 3.75px;font-weight:700;letter-spacing:0.5px;">AI 多空概率</span>
-            <span style="background:#041404;color:#b8f2cb;padding:0.75px 3.75px;font-weight:700;">多 ${bb.bull}% / 空 ${bb.bear}%</span>
-          </div>
-          <div style="margin-top:4.5px;font-family:'Courier New',Consolas,monospace;font-size:8.5px;color:#b8f2cb;font-weight:700;line-height:1.7;word-break:break-all;white-space:pre-wrap;">多 ${lsBarPush(bb.bull)} ${bb.bull}%
-空 ${lsBarPush(bb.bear)} ${bb.bear}%</div>
-          <div style="margin-top:3px;font-family:'Courier New',Consolas,monospace;font-size:7px;color:#63b47f;line-height:1.5;">${esc(bb.note || '')} · 模型：${src} · 仅供研究参考，不构成投资建议${x.transcript ? '' : '<br>未读取视频正文 · 概率仅依据标题与频道推算，不代表已分析视频'}</div>
-        </div>`;
+        <div style="margin-top:6px;padding:3.75px 6px;background:#031203;border:1px solid #0d9b4c;font-family:'Courier New',Consolas,monospace;font-size:8.5px;line-height:1.4;color:#b8f2cb;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span style="background:#00ff66;color:#041404;padding:0.75px 3.75px;font-size:7px;letter-spacing:0.5px;">${lsBadgeText(bb)}</span> 多 ${bb.bull}% ${bar.on}<span style="color:#3f8f5b;">${bar.off}</span> 空 ${bb.bear}%</div>`;
   };
 
   const items = freshItems.map((x, i) => x.error ?
@@ -598,14 +588,14 @@ async function pushCurrentReport({ automatic = false } = {}) {
     const content = (summaryHtml + saHtml) ? (summaryHtml + saHtml + baseContent) : baseContent;
     const target = pushTarget();
     setState('推送中…');
-    setPushStatus(target.oneToMany ? 'PUSHING → WECHAT 一对多' : 'PUSHING → WECHAT');
+    setPushStatus('PUSHING → WECHAT 一对多');
     const r = await fetch('/api/push', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         token,
-        topic: target.topic, // 一对多群组编码；留空时服务端使用 PUSHPLUS_TOPIC，仍为空则一对一
-        title: '章鱼 AI 全景分析',
+        topic: target.topic, // 一对多群组编码；留空时服务端使用 PUSHPLUS_TOPIC，仍为空则默认群组 oai.1
+        // 不传 title：推送标题由服务端统一为「章鱼 AI · 舆情量化分析」（server.js BRIEF_TITLE）
         content,
         template: 'html',
         channel: 'wechat'
@@ -614,15 +604,16 @@ async function pushCurrentReport({ automatic = false } = {}) {
     const d = await r.json();
     if (!r.ok || !d.ok) throw Error(d.msg || d.error || ('HTTP ' + r.status));
     const sent = d.sentParts || 1, total = d.totalParts || 1;
-    // 以服务端实际发送模式为准（群组编码可能来自服务端环境变量）
-    const oneToMany = d.mode ? d.mode === 'one-to-many' : target.oneToMany;
-    const modeText = oneToMany ? '一对多 · 群组全部订阅人' : '一对一 · 仅自己';
-    if (!automatic) alert(`✅ 推送成功！\n已推送到微信（PushPlus · ${modeText}）—— DOS 复古终端全景简报已发送！\n${summaryHtml ? '🧠 已附加 AI 主题聚类总结\n' : ''}${saHtml ? '🌐 已附加 SEEKING ALPHA 最新分析栏目\n' : ''}发送 ${sent}/${total} 条` + (total > 1 ? `（超过限制自动分条发送）` : '') + (d.data ? `\n首条流水号：` + d.data : '') + `\n\n— 章鱼 AI 全景分析 —`);
+    // 以服务端实际使用的群组编码为准（可能来自服务端环境变量或默认群组 oai.1）
+    const group = d.topic || target.group;
+    const modeText = group ? `一对多 · 群组 ${group} 全部订阅人` : '一对多 · 群组全部订阅人';
+    if (!automatic) alert(`✅ 推送成功！\n已推送到微信（PushPlus · ${modeText}）—— DOS 复古终端全景简报已发送！\n${summaryHtml ? '🧠 已附加 AI 主题聚类总结\n' : ''}${saHtml ? '🌐 已附加 SEEKING ALPHA 最新分析栏目\n' : ''}发送 ${sent}/${total} 条` + (total > 1 ? `（超过限制自动分条发送）` : '') + (d.data ? `\n首条流水号：` + d.data : '') + `\n\n— 章鱼 AI · 舆情量化分析 —`);
     setState('已推送微信 · ' + modeText + ' · ' + sent + '/' + total);
-    setPushStatus('PUSHED ' + sent + '/' + total + ' · ' + (oneToMany ? '一对多' : '一对一'));
+    setPushStatus('PUSHED ' + sent + '/' + total + ' · 一对多' + (group ? ' · ' + group : ''));
   } catch (e) {
     setState('微信推送失败 · 可手动重试');
-    notify('推送失败：' + e.message + '\n\n排查提示：\n1. Token 是否正确且已实名认证（2024-08-01 起需实名）\n2. 一对多：群组编码是否正确（须为该 Token 创建的群组）\n3. 检查网络连接或 PushPlus 频率限制');
+    const failGroup = pushTarget().group;
+    notify('推送失败：' + e.message + '\n\n排查提示：\n1. Token 是否正确且已实名认证（2024-08-01 起需实名）\n2. 群组编码' + (failGroup ? ' ' + failGroup : '') + ' 是否存在，且为该 Token 账号创建的群组\n3. 检查网络连接或 PushPlus 频率限制');
     setPushStatus('微信推送失败 · ' + e.message);
   } finally {
     pushInProgress = false;
