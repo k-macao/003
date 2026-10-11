@@ -1,11 +1,11 @@
-// ai.mjs — 章鱼 AI·舆情量化分析 · AI 总结与可量化情绪分析工作流模块
-// 单一职责：接收扫描结果数组 → 按「四步可量化分析工作流」分析每个标题并在推送开头输出 AI 总结概括。
+// ai.mjs — 章鱼 AI·舆情量化分析 · AI 归纳分析与量化舆情分析模块
+// 单一职责：接收扫描结果数组 → 按「四步量化舆情分析」分析每个标题并在推送开头输出 AI 归纳分析。
 // 提供方：DeepSeek（OpenAI 兼容协议）。也支持任意 OpenAI 兼容 base_url，通过环境变量切换。
 //
-// 四步可量化分析工作流：
+// 四步量化舆情分析：
 //   1. 数据采集（采集标题）：定期在 YouTube 搜索关键词（如“大盘走势”、“股票分析”、“港股/美股”），
 //      记录前 20-30 个热门视频的：标题、博主粉丝量/观看量、发布时间。
-//   2. 文本与情绪打标：用大模型（或简单的关键词脚本）将标题分类为：
+//   2. 文本与情绪打标：将标题分类为：
 //      极度乐观、谨慎乐观、中性观察、谨慎悲观、极度恐慌。
 //   3. 加权计算“情绪指数”：观看量越高的视频，其标题代表的情绪权重越大
 //      （因为算法把流量倾斜给了它，代表大众正在被这种情绪洗脑）。
@@ -14,16 +14,15 @@
 //
 // 入口：
 //   summarize(items, opts)        → { main, hotTopics, risks, opportunities, perVideo, quant, source } | null
-//   buildRuleSummary(items)       → 本地可量化工作流总结（无 AI Key 或调用失败时的降级概括，绝不冒充 AI）
+//   buildRuleSummary(items)       → 本地量化舆情分析总结（无 AI Key 或调用失败时的降级概括，绝不冒充 AI）
 //   analyzeLongShort(items, opts) → [{ bull, bear, sentiment, weightPct, note, source }]，逐条「AI 多空概率 + 五档情绪标签」
-//   renderSummaryHtml(summary, meta) → 推送开头 AI 总结块的 HTML 片段（含四步可量化分析工作流与全景多空概率）
+//   renderSummaryHtml(summary, meta) → 推送开头 AI 归纳分析块的 HTML 片段（含四步量化舆情分析与全景多空概率）
 
 import {
   ruleLongShort,
   normalizeProbability,
   sanitizeNote,
   bullBearBar,
-  SENTIMENT_LABELS,
   QUANT_KEYWORDS,
   normalizeSentimentLabel,
   sentimentLabel,
@@ -50,7 +49,7 @@ function truncate(s, n) {
 }
 
 /**
- * 基于四步可量化工作流生成本地规则总结（无 AI Key 或模型不可用时的确定性降级路径，如实标注来源）。
+ * 基于四步量化舆情分析生成本地规则总结（无 AI Key 或模型不可用时的确定性降级路径，如实标注来源）。
  */
 export function buildRuleSummary(items = []) {
   const safeItems = Array.isArray(items) ? items.slice(0, MAX_ITEMS) : [];
@@ -61,7 +60,7 @@ export function buildRuleSummary(items = []) {
     .join('、');
 
   const main = [
-    `【可量化情绪分析工作流】1.数据采集：围绕「${collection.keywords.join(' / ')}」等核心方向采集 ${collection.totalItems} 条热门视频（取前 ${collection.sampleLimit} 条热门样本，记录标题、博主粉丝量/观看量、发布时间，累计流量 ${collection.totalViewsText}）；`,
+    `【量化舆情分析】1.数据采集：围绕「${collection.keywords.join(' / ')}」等核心方向采集 ${collection.totalItems} 条热门视频（取前 ${collection.sampleLimit} 条热门样本，记录标题、博主粉丝量/观看量、发布时间，累计流量 ${collection.totalViewsText}）；`,
     `2.文本与情绪打标：按五档分类为 ${distText}，流量主导情绪为「${tagging.dominantByWeight}」；`,
     `3.加权“大众情绪指数”：观看量越高情绪权重越大，折算大众情绪指数为 ${sentimentIndex.index}/100（${sentimentIndex.label}，等权均值 ${sentimentIndex.unweightedIndex}）；`,
     `4.情绪曲线与大盘对照：${curveAndStrategy.bandStatus}，策略参考：${curveAndStrategy.strategyAction}。`
@@ -113,9 +112,9 @@ export function buildRuleSummary(items = []) {
 
 function buildPrompt(items, quant) {
   const lines = [];
-  lines.push('你是一名中文财经量化舆情编辑，负责按「四步可量化的分析工作流」分析每个视频标题，并在推送开头生成 AI 总结概括。');
+  lines.push('你是一名中文财经量化舆情编辑，负责按「四步量化舆情分析」分析每个视频标题，并在推送开头生成 AI 归纳分析。');
   lines.push('');
-  lines.push('【可量化的分析工作流（必须严格遵循并在总结中完整体现）】');
+  lines.push('【量化舆情分析（必须严格遵循并在总结中完整体现）】');
   lines.push('1. 数据采集（采集标题）：');
   lines.push('   定期在 YouTube 搜索关键词（如“大盘走势”、“股票分析”、“港股/美股”），记录前 20-30 个热门视频的：标题、博主粉丝量/观看量、发布时间。');
   lines.push('2. 文本与情绪打标：');
@@ -140,7 +139,7 @@ function buildPrompt(items, quant) {
   lines.push('2. 本简报为"全景汇总"，禁止输出任何"个股页"、按个股拆分的板块、单股分析或个股买卖评级（不得出现目标价、买入/卖出评级等个股推荐内容）；可阐述宏观大盘情绪上下轨交易策略（情绪极度恐慌时寻找左侧买点，情绪极度贪婪时考虑分批止盈）。');
   lines.push('3. JSON 字段：');
   lines.push('   {');
-  lines.push('     "main": "今日主线与四步量化情绪概括", // 100-220 字，按四步工作流概括：数据采集样本、五档情绪打标分布、流量加权大众情绪指数、历史上下轨与大盘对照策略');
+  lines.push('     "main": "AI 归纳分析", // 100-220 字，按四步量化舆情分析概括：数据采集样本、五档情绪打标分布、流量加权大众情绪指数、历史上下轨与大盘对照策略');
   lines.push('     "hotTopics": ["…"],     // 3-6 条高流量/核心情绪标题热点，带五档情绪标签与权重，每条 ≤ 45 字');
   lines.push('     "risks": ["…"],         // 2-5 条风险点（含情绪过热/上轨分批止盈警示或悲观诱因），每条 ≤ 45 字');
   lines.push('     "opportunities": ["…"], // 2-5 条机会点（含情绪极度恐慌下轨左侧买点线索或乐观催化），每条 ≤ 45 字');
@@ -217,7 +216,7 @@ function normalize(raw, items, quant) {
 }
 
 /**
- * 调 DeepSeek 总结（未配置 AI Key 或网络异常时，降级为本地四步可量化工作流总结，确保推送开头始终有完整量化总结）
+ * 调 DeepSeek 总结（未配置 AI Key 或网络异常时，降级为本地四步量化舆情分析总结，确保推送开头始终有完整量化总结）
  * @param {Array} items  扫描结果（与 /api/scan 返回的 items 形状一致）
  * @param {Object} opts  { onLog?: (s)=>void, signal?: AbortSignal, fallbackToRule?: boolean }
  * @returns {Promise<Object|null>}
@@ -233,7 +232,7 @@ export async function summarize(items, opts = {}) {
   const quant = analyzeQuantWorkflow(safeItems);
   const cfg = getConfig();
   if (!cfg.apiKey) {
-    onLog('[ai] 未配置 DEEPSEEK_API_KEY / OPENAI_API_KEY，使用本地四步可量化工作流生成推送开头总结');
+    onLog('[ai] 未配置 DEEPSEEK_API_KEY / OPENAI_API_KEY，使用本地四步量化舆情分析生成推送开头总结');
     return fallbackToRule ? buildRuleSummary(safeItems) : null;
   }
 
@@ -332,7 +331,7 @@ export async function analyzeLongShort(items, opts = {}) {
 
   const maxChars = Number(opts.maxTranscriptChars) || 800;
   const lines = [];
-  lines.push('你是一名中文财经情绪量化分析师。请按「可量化的分析工作流」阅读下面每条视频信息（频道 + 标题 + 粉丝量/观看量 + 发布时间 + 字幕摘录），');
+  lines.push('你是一名中文财经情绪量化分析师。请按「量化舆情分析」阅读下面每条视频信息（频道 + 标题 + 粉丝量/观看量 + 发布时间 + 字幕摘录），');
   lines.push('为每个标题完成以下两项量化打标：');
   lines.push('1. 文本与情绪打标（sentiment）：将标题严格分类为以下五档之一：');
   lines.push('   极度乐观（bull 75-95）、谨慎乐观（bull 56-74）、中性观察（bull 45-55）、谨慎悲观（bull 26-44）、极度恐慌（bull 5-25）。');
@@ -411,7 +410,7 @@ export async function analyzeLongShort(items, opts = {}) {
 }
 
 /**
- * 渲染「四步可量化的分析工作流」HTML 子面板（嵌入在推送开头 AI 总结块中，也可独立渲染）。
+ * 渲染「四步量化舆情分析」HTML 子面板（嵌入在推送开头 AI 归纳分析块中，也可独立渲染）。
  * 严格遵循五档色深（#eafff0 / #00ff66 / #b8f2cb / #8fdca4 / #63b47f）与 7–11.5px 字号规范。
  */
 export function renderQuantWorkflowHtml(quant, escFn) {
@@ -448,7 +447,7 @@ export function renderQuantWorkflowHtml(quant, escFn) {
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:4.5px;font-family:\'Courier New\',Consolas,monospace;font-size:8.5px;font-weight:700;color:#00ff66;letter-spacing:0.5px;margin-bottom:4.5px;flex-wrap:wrap;">',
         '<div style="display:flex;align-items:center;gap:4.5px;">',
           '<span style="background:#00ff66;color:#041404;padding:0.75px 3.75px;font-size:7px;">QUANT</span>',
-          '<span>&gt; 可量化的分析工作流 · QUANT_WORKFLOW.DAT</span>',
+          '<span>&gt; 量化舆情分析 · QUANT_WORKFLOW.DAT</span>',
         '</div>',
         `<span style="background:#041404;color:#b8f2cb;padding:0.75px 3.75px;font-size:7px;font-weight:700;">大众情绪指数 ${sentimentIndex.index}/100 · ${esc(sentimentIndex.label)}</span>`,
       '</div>',
@@ -462,8 +461,10 @@ export function renderQuantWorkflowHtml(quant, escFn) {
       // 步骤 2：文本与情绪打标
       '<div style="margin-top:4.5px;padding:4.5px 6px;background:#041404;border-left:3px solid #0d9b4c;">',
         '<div style="font-size:8px;color:#00ff66;font-weight:700;">2. 文本与情绪打标（五档分类）</div>',
-        `<div style="margin-top:2px;font-size:8px;color:#8fdca4;line-height:1.5;">用大模型（或关键词脚本）将每个标题分类为：<b style="color:#b8f2cb;">${esc(SENTIMENT_LABELS.join('、'))}</b>（当前流量主导：<b style="color:#eafff0;">${esc(tagging.dominantByWeight)}</b>）。</div>`,
-        `<div style="margin-top:3px;line-height:1.5;">${distBadges}</div>`,
+        `<div style="margin-top:3px;line-height:1.5;">` +
+          `<span style="display:inline-block;margin:1.5px 3px 1.5px 0;padding:1.5px 4.5px;background:#00ff66;color:#041404;font-size:7.5px;font-weight:700;">流量主导: ${esc(tagging.dominantByWeight)}</span>` +
+          distBadges +
+        `</div>`,
       '</div>',
 
       // 步骤 3：加权计算“情绪指数”
@@ -486,7 +487,7 @@ export function renderQuantWorkflowHtml(quant, escFn) {
 }
 
 /**
- * 把总结对象渲染成 HTML 片段（DOS 监视器 · 复古终端视觉风格，位于推送开头）
+ * 把 AI 归纳分析对象渲染成 HTML 片段（DOS 监视器 · 复古终端视觉风格，位于推送开头）
  * @param {Object} summary  summarize() / buildRuleSummary() 的返回值
  * @param {Object} meta     { generatedAt: string, itemCount: number, longShort?: {bull,bear,count,source}, quant?: Object, items?: Array }
  */
@@ -519,15 +520,15 @@ export function renderSummaryHtml(summary, meta = {}) {
         `<span style="background:#041404;color:#00ff66;padding:0.75px 4.5px;">AI SUMMARY · 基于 ${itemCount} 条情报</span>`,
       '</div>',
       '<div style="padding:7.5px 9px;">',
-        // ── 今日主线：黑屏看板 ──
+        // ── AI 归纳分析：黑屏看板 ──
         '<div style="background:#031203;border:1px solid #0d9b4c;padding:7.5px 9px;margin-bottom:7.5px;">',
           '<div style="font-family:\'Courier New\',Consolas,monospace;font-size:8px;color:#00ff66;font-weight:700;letter-spacing:1px;margin-bottom:4.5px;">',
-            '▌TODAY MAIN QUEST / 今日主线 · 可量化情绪分析概括',
+            '▌AI DIGEST / AI 归纳分析',
           '</div>',
           `<p style="margin:0;color:#eafff0;font-weight:700;line-height:1.65;white-space:pre-wrap;word-break:break-word;font-size:10px;">${esc(summary.main)}</p>`,
-          '<div style="margin-top:4.5px;font-family:\'Courier New\',Consolas,monospace;font-size:8px;color:#2c6742;">C:\\&gt; MAIN.TXT █</div>',
+          '<div style="margin-top:4.5px;font-family:\'Courier New\',Consolas,monospace;font-size:8px;color:#2c6742;">C:\\&gt; AI_DIGEST.TXT █</div>',
         '</div>',
-        // ── 四步可量化的分析工作流看板（数据采集 → 五档打标 → 流量加权情绪指数 → 情绪曲线对照大盘） ──
+        // ── 四步量化舆情分析看板（数据采集 → 五档打标 → 流量加权情绪指数 → 情绪曲线对照大盘） ──
         quantHtml,
         // ── 全景多空概率（AI 多空概率汇总） ──
         ls ? (

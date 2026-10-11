@@ -599,7 +599,7 @@ async function scan(names, limit = 50) {
 }
 
 /**
- * 给扫描结果做 AI 量化工作流总结（DeepSeek / 本地四步可量化工作流降级），并返回一段 HTML 片段，
+ * 给扫描结果做 AI 归纳分析（DeepSeek / 本地四步量化舆情分析降级），并返回一段 HTML 片段，
  * 供 pushWechat 插到推送开头。
  */
 async function buildSummaryHtml(items) {
@@ -626,7 +626,7 @@ async function buildSummaryHtml(items) {
  *   1) <section data-kind="stock-page" ...>
  *   2) <section class="... stock-page ...">
  *   3) 段内徽标文本：>个股页< / >個股頁< / >STOCK PAGE<
- * 保证推送内容只保留全景汇总（AI 总结 + 情报流 + 尾页），绝不带个股页。
+ * 保证推送内容只保留全景汇总（AI 归纳分析 + 情报流 + 尾页），绝不带个股页。
  */
 function stripStockSections(html) {
   if (!html) return html;
@@ -920,7 +920,7 @@ const server = http.createServer(async (req,res) => {
     if (!items.length) return json(res, 400, { error: '缺少 items' });
     const quant = analyzeQuantWorkflow(items.filter(x => x && !x.error));
     const summaryHtml = await buildSummaryHtml(items);
-    if (!summaryHtml) return json(res, 200, { ok: false, summaryHtml: '', quant, reason: 'AI 总结不可用（未配置 key / 调用失败 / 解析失败），已降级为无总结推送' });
+    if (!summaryHtml) return json(res, 200, { ok: false, summaryHtml: '', quant, reason: 'AI 归纳分析不可用（未配置 key / 调用失败 / 解析失败），已降级为无总结推送' });
     return json(res, 200, { ok: true, summaryHtml, quant });
   } catch (e) { json(res, 500, { error: e.message }); }
   return;
