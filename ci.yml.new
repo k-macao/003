@@ -113,7 +113,6 @@ jobs:
       - name: Scan and push to WeChat
         env:
           PUSHPLUS_TOKEN: ${{ inputs.pushplus_token != '' && inputs.pushplus_token || secrets.PUSHPLUS_TOKEN }}
-          PUSHPLUS_TOPIC: ${{ secrets.PUSHPLUS_TOPIC }}
           CHANNELS_INPUT: ${{ inputs.channels }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           ENABLE_AI_SUMMARY: ${{ inputs.enable_ai_summary }}
@@ -366,14 +365,13 @@ jobs:
           fs.writeFileSync('chunks.json', JSON.stringify({header, footer, chunks, title: safeTitle}, null, 2));
 
           const token = process.env.PUSHPLUS_TOKEN;
-          // 一对多群推送：PushPlus 群组 topic（群名 oai.1），群内成员全部可达；可用 PUSHPLUS_TOPIC 覆盖
-          const topic = String(process.env.PUSHPLUS_TOPIC || 'oai.1').trim();
+          // 一对一推送：不传群组 topic，仅发送给 token 对应的用户
           let okCount=0;
           for(let i=0;i<chunks.length;i++){
             const partTitle = chunks.length>1 ? `${safeTitle} (${i+1}/${chunks.length})` : safeTitle;
             const partContent = (header||footer) ? `${header}${chunks[i]}${footer}` : chunks[i];
-            const payload = JSON.stringify({ token, title: partTitle, content: partContent, template: 'html', channel: 'wechat', ...(topic ? { topic } : {}) });
-            console.log(`推送 ${i+1}/${chunks.length}: ${partTitle} (${htmlLen(partContent)} 字符${topic ? ' · 群 ' + topic : ''})`);
+            const payload = JSON.stringify({ token, title: partTitle, content: partContent, template: 'html', channel: 'wechat' });
+            console.log(`推送 ${i+1}/${chunks.length}: ${partTitle} (${htmlLen(partContent)} 字符)`);
             let r, text, data;
             try {
               r = await fetch('https://www.pushplus.plus/send', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: payload });
@@ -434,7 +432,6 @@ jobs:
       - name: Daily scan and push
         env:
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
-          PUSHPLUS_TOPIC: ${{ secrets.PUSHPLUS_TOPIC }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           if [ -z "$PUSHPLUS_TOKEN" ]; then
@@ -670,14 +667,13 @@ jobs:
             fs.writeFileSync('chunks.json', JSON.stringify({header, footer, chunks, title: safeTitle}, null, 2));
 
             const token = process.env.PUSHPLUS_TOKEN;
-            // 一对多群推送：PushPlus 群组 topic（群名 oai.1），群内成员全部可达；可用 PUSHPLUS_TOPIC 覆盖
-            const topic = String(process.env.PUSHPLUS_TOPIC || 'oai.1').trim();
+            // 一对一推送：不传群组 topic，仅发送给 token 对应的用户
             let okCount=0;
             for(let i=0;i<chunks.length;i++){
               const partTitle = chunks.length>1 ? `${safeTitle} (${i+1}/${chunks.length})` : safeTitle;
               const partContent = (header||footer) ? `${header}${chunks[i]}${footer}` : chunks[i];
-              const payload = JSON.stringify({ token, title: partTitle, content: partContent, template: 'html', channel: 'wechat', ...(topic ? { topic } : {}) });
-              console.log(`推送 ${i+1}/${chunks.length}: ${partTitle} (${htmlLen(partContent)} 字符${topic ? ' · 群 ' + topic : ''})`);
+              const payload = JSON.stringify({ token, title: partTitle, content: partContent, template: 'html', channel: 'wechat' });
+              console.log(`推送 ${i+1}/${chunks.length}: ${partTitle} (${htmlLen(partContent)} 字符)`);
               let r, text, data;
               try {
                 r = await fetch('https://www.pushplus.plus/send', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: payload });

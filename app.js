@@ -744,7 +744,7 @@ async function pushCurrentReport({ automatic = false } = {}) {
     const d = await r.json();
     if (!r.ok || !d.ok) throw Error(d.msg || d.error || ('HTTP ' + r.status));
     const sent = d.sentParts || 1, total = d.totalParts || 1;
-    if (!automatic) alert(`✅ 推送成功！\n已一对多推送到微信（PushPlus 群推送）—— DOS 复古终端全景简报已发送！\n${summaryHtml ? '🧠 已附加 AI 主题聚类总结\n' : ''}${saHtml ? '🌐 已附加 SEEKING ALPHA 最新分析栏目\n' : ''}发送 ${sent}/${total} 条` + (total > 1 ? `（超过限制自动分条发送）` : '') + (d.data ? `\n首条流水号：` + d.data : '') + `\n\n— 章鱼 AI · 舆情量化分析 —`);
+    if (!automatic) alert(`✅ 推送成功！\n已一对一推送到微信（PushPlus 个人推送）—— DOS 复古终端全景简报已发送！\n${summaryHtml ? '🧠 已附加 AI 主题聚类总结\n' : ''}${saHtml ? '🌐 已附加 SEEKING ALPHA 最新分析栏目\n' : ''}发送 ${sent}/${total} 条` + (total > 1 ? `（超过限制自动分条发送）` : '') + (d.data ? `\n首条流水号：` + d.data : '') + `\n\n— 章鱼 AI · 舆情量化分析 —`);
     setState('已推送微信 · ' + sent + '/' + total);
     setPushStatus('PUSHED ' + sent + '/' + total);
   } catch (e) {

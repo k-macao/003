@@ -736,13 +736,11 @@ function splitHtmlBySections(html, maxChars = PUSHPLUS_MAX_CHARS) {
  * 关键点：
  *  1) 必须使用 HTTPS + JSON body（form-urlencoded 在新版接口下不稳定）
  *  2) 必须显式带 channel:"wechat"，否则可能走到用户默认渠道而非微信
- *  3) 一对多群推送：带 topic:"oai.1"（PushPlus 群组编码），群内成员都能收到；
- *     可用环境变量 PUSHPLUS_TOPIC 覆盖群组名
+ *  3) 一对一推送：不携带 topic，仅发送给 token 对应的用户
  *  4) 调用是异步的，返回 code:200 只代表服务器已受理；真正投递结果以 shortCode 为准
  *  5) 10 万文字控制：单条内容超过 100,000 字符会被拒绝，自动按 section 边界分多条发送，标题加 (1/N) 后缀
  */
-const PUSHPLUS_TOPIC = String(process.env.PUSHPLUS_TOPIC || 'oai.1').trim();
-async function pushWechat({ token, title, content, template = 'html', channel = 'wechat', topic = PUSHPLUS_TOPIC }) {
+async function pushWechat({ token, title, content, template = 'html', channel = 'wechat' }) {
   if (!token) throw new Error('缺少 PushPlus token');
   if (!content) throw new Error('缺少推送内容');
   // 不推个股页：发送前统一剥离个股板块/个股页，只推全景汇总
@@ -804,8 +802,8 @@ async function pushWechat({ token, title, content, template = 'html', channel = 
   for (let i = 0; i < total; i++) {
     const partTitle = total > 1 ? `${baseTitle} (${i + 1}/${total})` : baseTitle;
     const partContent = total > 1 ? `${header}${chunks[i]}${footer}` : (header ? `${header}${chunks[i]}${footer}` : chunks[i]);
-    // 一对多群推送：带 topic（PushPlus 群组编码，默认 oai.1）
-    const payload = JSON.stringify({ token, title: partTitle, content: partContent, template, channel, ...(topic ? { topic } : {}) });
+    // 一对一推送：不传群组 topic
+    const payload = JSON.stringify({ token, title: partTitle, content: partContent, template, channel });
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20000);
     try {
@@ -818,13 +816,13 @@ async function pushWechat({ token, title, content, template = 'html', channel = 
       const text = await r.text();
       let data;
       try { data = JSON.parse(text); } catch { data = { raw: text }; }
-      results.push({ part: i + 1, total, title: partTitle, chars: contentLength(partContent), topic: topic || '', httpStatus: r.status, ...data });
+      results.push({ part: i + 1, total, title: partTitle, chars: contentLength(partContent), httpStatus: r.status, ...data });
       // 如果某一条失败，停止后续发送，避免半截轰炸
       if (data.code !== 200) break;
       // 多条之间稍作间隔，避免触发频率限制
       if (i < total - 1) await new Promise(r => setTimeout(r, 800));
     } catch (err) {
-      results.push({ part: i + 1, total, title: partTitle, chars: contentLength(partContent), topic: topic || '', httpStatus: 0, code: err.code || 0, msg: err.message, error: err.message });
+      results.push({ part: i + 1, total, title: partTitle, chars: contentLength(partContent), httpStatus: 0, code: err.code || 0, msg: err.message, error: err.message });
       break;
     } finally {
       clearTimeout(timer);
@@ -927,8 +925,8 @@ const server = http.createServer(async (req,res) => {
  }
  if (u.pathname === '/api/push-config' && req.method === 'GET') {
   res.setHeader('Cache-Control', 'no-store');
-  // topic 为 PushPlus 群组编码（一对多群推送），非敏感信息，可供前端展示
-  return json(res, 200, { wechatConfigured: Boolean(process.env.PUSHPLUS_TOKEN?.trim()), channel: 'wechat', topic: PUSHPLUS_TOPIC, maxChars: PUSHPLUS_MAX_CHARS });
+  // 一对一推送，仅发送给 token 对应的用户
+  return json(res, 200, { wechatConfigured: Boolean(process.env.PUSHPLUS_TOKEN?.trim()), channel: 'wechat', maxChars: PUSHPLUS_MAX_CHARS });
  }
  if (u.pathname === '/api/push' && req.method === 'POST') {
   try {
@@ -940,9 +938,7 @@ const server = http.createServer(async (req,res) => {
       title: body.title || '章鱼 AI · 舆情量化分析',
       content: body.content || '',
       template: body.template || 'html',
-      channel: body.channel || 'wechat',
-      // 一对多群推送：默认群组 oai.1；调用方显式传 topic 时可覆盖
-      ...(body.topic !== undefined ? { topic: String(body.topic || '').trim() } : {})
+      channel: body.channel || 'wechat'
     });
     json(res, out.ok ? 200 : 502, { pushed: out.ok, ...out });
   } catch(e){ json(res,500,{error:e.message}); } return;

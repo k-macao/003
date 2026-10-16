@@ -81,11 +81,12 @@ test('已移除废弃频道且默认工作流与网页清单同步', async () =>
   }
 });
 
-test('工作流：群推送 oai.1、新标题、10 万字符控制、每条不带模型/免责说明', async () => {
+test('工作流：一对一推送、新标题、10 万字符控制、每条不带模型/免责说明', async () => {
   const workflow = await readFile(new URL('../.github/workflows/oai.yml', import.meta.url), 'utf8');
-  // 一对多群推送（PushPlus topic，群名 oai.1）
-  assert.equal(workflow.match(/process\.env\.PUSHPLUS_TOPIC \|\| 'oai\.1'/g).length, 2);
-  assert.equal(workflow.match(/\.\.\.\(topic \? \{ topic \} : \{\}\)/g).length, 2);
+  // 一对一推送：不读取群组配置，不发送 topic
+  assert.ok(!workflow.includes('PUSHPLUS_TOPIC'));
+  assert.ok(!/\btopic\s*[,}:]/.test(workflow));
+  assert.equal(workflow.match(/template: 'html', channel: 'wechat' \}/g).length, 2);
   // 推送标题
   assert.equal(workflow.match(/const title = '章鱼 AI · 舆情量化分析';/g).length, 2);
   assert.ok(!workflow.includes('章鱼 AI 全景分析'));
