@@ -88,7 +88,7 @@ test('工作流：一对一推送、新标题、10 万字符控制、每条不�
   assert.ok(!/\btopic\s*[,}:]/.test(workflow));
   assert.equal(workflow.match(/template: 'html', channel: 'wechat' \}/g).length, 2);
   // 推送标题
-  assert.equal(workflow.match(/const title = '章鱼 AI · 舆情量化分析';/g).length, 2);
+  assert.equal(workflow.match(/const title = '章鱼 AI · 舆情003';/g).length, 2);
   assert.ok(!workflow.includes('章鱼 AI 全景分析'));
   // 10 万文字控制（按字符数，不再按 90,000 字节）
   assert.equal(workflow.match(/const PUSHPLUS_MAX_CHARS = 100000;/g).length, 2);
@@ -106,7 +106,7 @@ test('每条推送：标题、单行多空概率，且不附模型/免责/未读
     bullBear: { bull: 64, bear: 36, note: '偏多：反弹 / 內房', source: 'ai' } }] });
   await h.node('#scan').onclick();
   const payload = h.pushes()[0].body;
-  assert.equal(payload.title, '章鱼 AI · 舆情量化分析');
+  assert.equal(payload.title, '章鱼 AI · 舆情003');
   // 多 / 空 同一行显示
   assert.match(payload.content, /多 █+░* 64% ｜ 空 █+░* 36%/);
   assert.ok(!/white-space:pre-wrap;">多 /.test(payload.content));
