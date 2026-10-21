@@ -516,7 +516,7 @@ async function runFlows(token) {
 async function scan(names, limit = 50) {
  // 单次简报上限 50 条，避免长推送淹没重点；调用方可传入更小的剩余额度。
  const itemLimit = Math.max(1, Math.min(Number(limit) || 50, 50));
- // 章鱼 AI·舆情量化分析：扫描所选频道，达到简报上限即停止。
+ // 章鱼 AI · 舆情003：扫描所选频道，达到简报上限即停止。
  // 频道逐个顺序抓取，避免对 YouTube 产生过高并发；每个内容源最多保留 3 条「最近 72 小时内」的内容。
  //
  // 时效验证（新增）：每抓到一个候选先做 72 小时裁决 ——
@@ -749,7 +749,7 @@ async function pushWechat({ token, title, content, template = 'html', channel = 
   const filteredContent = filterSensitiveHtml(content, { collectMatches: true });
   // 压缩无用标记并去掉重复区块后再计算长度与分条
   content = compactBriefHtml(filteredContent.text);
-  const rawTitle = title || '章鱼 AI · 舆情量化分析';
+  const rawTitle = title || '章鱼 AI · 舆情003';
   const filteredTitle = filterSensitiveText(rawTitle, { collectMatches: true });
   const baseTitle = filteredTitle.text;
   const sensitiveHits = filteredContent.matches.length + filteredTitle.matches.length;
@@ -935,7 +935,7 @@ const server = http.createServer(async (req,res) => {
     if (!token) return json(res,400,{error:'缺少 PushPlus token（请传入 body.token 或在服务器配置 PUSHPLUS_TOKEN 环境变量）'});
     const out = await pushWechat({
       token,
-      title: body.title || '章鱼 AI · 舆情量化分析',
+      title: body.title || '章鱼 AI · 舆情003',
       content: body.content || '',
       template: body.template || 'html',
       channel: body.channel || 'wechat'

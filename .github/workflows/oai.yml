@@ -328,7 +328,7 @@ jobs:
           // 不推个股页：发送前剥离个股板块/个股页
           // 与网页端 /api/push 同一套本地词库：只过滤页面可见文本，命中统一替换为 xxx。
           const filteredPage = filterSensitiveHtml(stripStockSections((summaryHtml || '') + saHtml + baseContent), { collectMatches: true });
-          const title = '章鱼 AI · 舆情量化分析';
+          const title = '章鱼 AI · 舆情003';
           const filteredTitle = filterSensitiveText(title, { collectMatches: true });
           const safeTitle = filteredTitle.text;
           const content = compactBriefHtml(filteredPage.text);
@@ -630,7 +630,7 @@ jobs:
             // 不推个股页：发送前剥离个股板块/个股页
             // 与网页端 /api/push 同一套本地词库：只过滤页面可见文本，命中统一替换为 xxx。
             const filteredPage = filterSensitiveHtml(stripStockSections((summaryHtml || '') + saHtml + baseContent), { collectMatches: true });
-            const title = '章鱼 AI · 舆情量化分析';
+            const title = '章鱼 AI · 舆情003';
             const filteredTitle = filterSensitiveText(title, { collectMatches: true });
             const safeTitle = filteredTitle.text;
             const content = compactBriefHtml(filteredPage.text);
